@@ -1,0 +1,16 @@
+# Regras de roteamento da Netlify que viajam DENTRO do build.
+#
+# O netlify.toml na raiz do projeto so e lido em deploy conectado ao git. Como
+# /build/ esta no .gitignore, o deploy normal e enviar a pasta build/web pronta
+# (arrastar no painel, ou netlify deploy --dir=build/web) -- e nesse caso o
+# netlify.toml pode nao ser considerado. Este arquivo e copiado pelo Flutter
+# para dentro de build/web, entao as regras vao junto do site de qualquer forma.
+#
+# ATENCAO: o rewrite de /api abaixo expira em 26 s (limite da Netlify para
+# proxy). O cold start da API hibernada leva ~147 s, entao a primeira visita do
+# dia pode falhar. A solucao definitiva e habilitar CORS no acontece-api e
+# compilar com --dart-define=API_BASE_URL=https://acontece-api.onrender.com,
+# eliminando o proxy. Veja o README.
+
+/api/*  https://acontece-api.onrender.com/:splat  200
+/*      /index.html                               200
