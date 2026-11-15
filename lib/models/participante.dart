@@ -31,17 +31,23 @@ class Participante {
 
 /// Corpo de `POST /participantes` (`ParticipanteRequest`). Todos os campos vao,
 /// porque e uma criacao.
+///
+/// E a unica rota aberta sem login: e o "criar conta" do site. A `senha`
+/// (8 a 72 caracteres) e o que permite ao participante entrar depois; a API
+/// guarda so o hash BCrypt. Nao ha rota para trocar a senha depois.
 class ParticipanteInput {
   const ParticipanteInput({
     required this.nome,
     required this.email,
     required this.cpf,
+    required this.senha,
     this.telefone,
   });
 
   final String nome;
   final String email;
   final String cpf;
+  final String senha;
   final String? telefone;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -49,6 +55,7 @@ class ParticipanteInput {
     'email': email.trim().toLowerCase(),
     'cpf': Validators.digits(cpf),
     'telefone': (telefone ?? '').isEmpty ? null : Validators.digits(telefone!),
+    'senha': senha,
   };
 }
 

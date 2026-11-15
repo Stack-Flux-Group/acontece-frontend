@@ -6,6 +6,14 @@ import '../models/status_inscricao.dart';
 
 /// Acesso as rotas de inscricao — o nucleo da regra de negocio.
 ///
+/// Permissoes:
+///
+///  * `POST /inscricoes` — so participante, sempre em nome proprio
+///  * `GET /inscricoes` — participante enxerga **so as proprias** (o filtro
+///    `participanteId` que ele mandar e ignorado); organizador enxerga todas
+///  * `GET /inscricoes/{id}` — organizador, ou o dono da inscricao
+///  * `PATCH /inscricoes/{id}/status` — so organizador
+///
 /// O back-end carrega o evento com trava pessimista (`SELECT ... FOR UPDATE`)
 /// durante a criacao, de modo que inscricoes simultaneas no mesmo evento sao
 /// serializadas e o limite de vagas nunca e furado. Para o cliente isso aparece
@@ -15,27 +23,13 @@ class InscricaoRepository {
 
   final ApiClient _client;
 
-  /// Diz se esta build da API tem o modulo de inscricoes.
-  ///
-  /// O deploy atual nao tem: responde `404 "No static resource inscricoes."`.
-  /// Sondar uma vez evita que a aba inteira mostre erro de rota como se fosse
-  /// falha de dados.
-  Future<bool> moduloDisponivel() async {
-    try {
-      await _client.get('/inscricoes', query: {'size': 1});
-      return true;
-    } on ApiException catch (e) {
-      if (e.isMissingEndpoint || e.status == 405) return false;
-      rethrow;
-    }
-  }
-
   /// `POST /inscricoes` -> 201 + `Location`.
   ///
   /// Sempre nasce como `PENDENTE`, com `dataInscricao` no horario de Sao Paulo.
   /// Os erros possiveis, na ordem em que o back-end verifica:
   ///
-  ///  * 404 — participante inexistente
+  ///  * 403 — quem esta logado nao e participante
+  ///  * 404 — participante inexistente (conta excluida com token ainda valido)
   ///  * 404 — evento inexistente
   ///  * 400 — "O evento ja foi encerrado" (`dataFim` no passado)
   ///  * 409 — "Participante ja possui inscricao ativa neste evento"
@@ -75,13 +69,19 @@ class InscricaoRepository {
       },
     );
     if (data is! Map) throw ApiException.badPayload('/inscricoes');
-    return PagedModel.fromJson(data.cast<String, dynamic>(), Inscricao.fromJson);
+    return PagedModel.fromJson(
+      data.cast<String, dynamic>(),
+      Inscricao.fromJson,
+    );
   }
 
   /// Conta as inscricoes de um evento que **ocupam vaga** (`PENDENTE` +
   /// `CONFIRMADA`), para mostrar "ocupadas/vagas".
   ///
   /// Usa `totalElements` com `size=1`: so o contador interessa, nao as linhas.
+  ///
+  /// **So faz sentido para o organizador.** Para o participante a API trava a
+  /// listagem nas inscricoes dele, entao o numero seria o dele, nao o do evento.
   Future<int> contarAtivasDoEvento(int eventoId) async {
     var total = 0;
     for (final status in StatusInscricao.values.where((s) => s.ocupaVaga)) {
@@ -89,6 +89,19 @@ class InscricaoRepository {
       total += pagina.totalElements;
     }
     return total;
+  }
+
+  /// A inscricao ativa (`PENDENTE` ou `CONFIRMADA`) do participante logado
+  /// neste evento, ou `null`.
+  ///
+  /// Funciona porque, para o participante, `GET /inscricoes` ja vem filtrado
+  /// pelo id do token. A API permite so uma ativa por participante e evento.
+  Future<Inscricao?> minhaAtivaNoEvento(int eventoId) async {
+    final pagina = await listar(eventoId: eventoId, size: 50);
+    for (final inscricao in pagina.content) {
+      if (inscricao.status.ocupaVaga) return inscricao;
+    }
+    return null;
   }
 
   /// `PATCH /inscricoes/{id}/status`

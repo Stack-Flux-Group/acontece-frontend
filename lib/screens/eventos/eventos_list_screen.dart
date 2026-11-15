@@ -3,16 +3,25 @@ import 'package:material_ui/material_ui.dart';
 import '../../core/api_dates.dart';
 import '../../core/formatters.dart';
 import '../../core/theme.dart';
+import '../../models/auth.dart';
 import '../../models/evento.dart';
 import '../../services.dart';
 import '../../widgets/async_view.dart';
+import '../../widgets/cabecalho_pagina.dart';
 import '../../widgets/evento_card.dart';
+import '../home_shell.dart';
 import 'evento_detail_screen.dart';
 import 'evento_form_screen.dart';
 
-/// Catalogo de eventos: busca por titulo, filtro por periodo e criacao.
+/// Catalogo de eventos: busca por titulo, filtro por periodo e, para o
+/// organizador, criacao.
+///
+/// Qualquer usuario logado pode ler `/evento/**`; criar, editar e excluir e so
+/// do organizador. O participante nem ve esses botoes.
 class EventosListScreen extends StatefulWidget {
-  const EventosListScreen({super.key});
+  const EventosListScreen({super.key, required this.usuario});
+
+  final UsuarioLogado usuario;
 
   @override
   State<EventosListScreen> createState() => _EventosListScreenState();
@@ -34,6 +43,8 @@ class _EventosListScreenState extends State<EventosListScreen> {
 
   /// Incrementado depois de criar/editar/excluir para forcar nova busca.
   int _versao = 0;
+
+  bool get _organizador => widget.usuario.ehOrganizador;
 
   /// Muda sempre que o filtro ou a versao muda, fazendo o [AsyncView] recarregar.
   String get _chave =>
@@ -73,7 +84,7 @@ class _EventosListScreenState extends State<EventosListScreen> {
       firstDate: DateTime(agora.year - 5),
       lastDate: DateTime(agora.year + 5),
       initialDateRange: _periodo,
-      helpText: 'Eventos que comecam no periodo',
+      helpText: 'Eventos que começam no período',
     );
     if (faixa == null) return;
     setState(() {
@@ -81,7 +92,14 @@ class _EventosListScreenState extends State<EventosListScreen> {
       // o fim ate 23:59:59 faz o ultimo dia escolhido entrar inteiro.
       _periodo = DateTimeRange(
         start: DateTime(faixa.start.year, faixa.start.month, faixa.start.day),
-        end: DateTime(faixa.end.year, faixa.end.month, faixa.end.day, 23, 59, 59),
+        end: DateTime(
+          faixa.end.year,
+          faixa.end.month,
+          faixa.end.day,
+          23,
+          59,
+          59,
+        ),
       );
       _modo = _Modo.periodo;
       _titulo = '';
@@ -107,95 +125,121 @@ class _EventosListScreenState extends State<EventosListScreen> {
 
   Future<void> _abrir(Evento evento) async {
     final mudou = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => EventoDetailScreen(eventoId: evento.id)),
+      MaterialPageRoute(
+        builder: (_) =>
+            EventoDetailScreen(eventoId: evento.id, usuario: widget.usuario),
+      ),
     );
     if (mudou == true && mounted) setState(() => _versao++);
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Eventos'),
-      actions: [
-        IconButton(
-          onPressed: _escolherPeriodo,
-          icon: const Icon(Icons.date_range),
-          tooltip: 'Filtrar por periodo',
-        ),
-        const SizedBox(width: 4),
-      ],
-    ),
-    body: AsyncView<List<Evento>>(
-      reloadKey: _chave,
-      load: _carregar,
-      isEmpty: (eventos) => eventos.isEmpty,
-      emptyTitle: _modo == _Modo.todos
-          ? 'Nenhum evento cadastrado'
-          : 'Nenhum evento encontrado',
-      emptyMessage: _modo == _Modo.todos
-          ? 'Crie o primeiro evento da plataforma.'
-          : 'Ajuste a busca ou limpe os filtros.',
-      emptyAction: _modo == _Modo.todos
-          ? FilledButton.icon(
-              onPressed: _criar,
-              icon: const Icon(Icons.add),
-              label: const Text('Novo evento'),
-            )
-          : TextButton.icon(
-              onPressed: _limparFiltros,
-              icon: const Icon(Icons.close),
-              label: const Text('Limpar filtros'),
+    body: Column(
+      children: [
+        CabecalhoPagina(
+          titulo: _organizador ? 'Eventos' : 'Descubra eventos',
+          subtitulo: _organizador
+              ? 'Crie, edite e acompanhe a agenda da plataforma.'
+              : 'Encontre algo para fazer e garanta sua vaga.',
+          acoes: [
+            AcaoCabecalho(
+              icone: Icons.date_range,
+              tooltip: 'Filtrar por período',
+              onPressed: _escolherPeriodo,
             ),
-      builder: (context, eventos, recarregar) {
-        // `GET /evento/listar/` devolve a tabela na ordem do banco; ordenar aqui
-        // deixa a lista previsivel. A busca por periodo ja vem ordenada pela API.
-        final ordenados = [...eventos]
-          ..sort((a, b) => a.dataInicio.compareTo(b.dataInicio));
+            ContaBotao(usuario: widget.usuario),
+          ],
+          rodape: _Filtros(
+            controller: _buscaController,
+            periodo: _periodo,
+            onBuscar: _buscarPorTitulo,
+            onLimpar: _modo == _Modo.todos ? null : _limparFiltros,
+          ),
+        ),
+        Expanded(
+          child: AsyncView<List<Evento>>(
+            reloadKey: _chave,
+            load: _carregar,
+            isEmpty: (eventos) => eventos.isEmpty,
+            emptyTitle: _modo == _Modo.todos
+                ? 'Nenhum evento cadastrado'
+                : 'Nenhum evento encontrado',
+            emptyMessage: _modo != _Modo.todos
+                ? 'Ajuste a busca ou limpe os filtros.'
+                : _organizador
+                ? 'Crie o primeiro evento da plataforma.'
+                : 'Volte em breve: novos eventos aparecem aqui.',
+            emptyAction: _modo != _Modo.todos
+                ? TextButton.icon(
+                    onPressed: _limparFiltros,
+                    icon: const Icon(Icons.close),
+                    label: const Text('Limpar filtros'),
+                  )
+                : _organizador
+                ? FilledButton.icon(
+                    onPressed: _criar,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Novo evento'),
+                  )
+                : null,
+            builder: (context, eventos, recarregar) {
+              // `GET /evento/listar/` devolve a tabela na ordem do banco;
+              // ordenar aqui deixa a lista previsivel. Para o participante, os
+              // eventos ainda abertos vem antes dos encerrados.
+              final ordenados = [...eventos]
+                ..sort((a, b) {
+                  if (!_organizador && a.encerrado != b.encerrado) {
+                    return a.encerrado ? 1 : -1;
+                  }
+                  return a.dataInicio.compareTo(b.dataInicio);
+                });
 
-        return RefreshIndicator(
-          onRefresh: recarregar,
-          child: ListView(
-            padding: const EdgeInsets.only(bottom: 96),
-            children: [
-              ContentWidth(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              return RefreshIndicator(
+                onRefresh: recarregar,
+                child: ListView(
+                  padding: const EdgeInsets.only(bottom: 96),
                   children: [
-                    const SizedBox(height: 16),
-                    _Filtros(
-                      controller: _buscaController,
-                      periodo: _periodo,
-                      onBuscar: _buscarPorTitulo,
-                      onLimpar: _modo == _Modo.todos ? null : _limparFiltros,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      ordenados.length == 1
-                          ? '1 evento'
-                          : '${ordenados.length} eventos',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ContentWidth(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 20),
+                          Text(
+                            ordenados.length == 1
+                                ? '1 evento'
+                                : '${ordenados.length} eventos',
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                          ),
+                          const SizedBox(height: 14),
+                          _Grade(eventos: ordenados, onAbrir: _abrir),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    _Grade(eventos: ordenados, onAbrir: _abrir),
                   ],
                 ),
-              ),
-            ],
+              );
+            },
           ),
-        );
-      },
+        ),
+      ],
     ),
-    // As tres abas vivem ao mesmo tempo dentro de um IndexedStack, entao os
-    // FABs coexistem. Sem uma heroTag propria em cada um, o Hero reclama de tag
+    // As abas vivem ao mesmo tempo dentro de um IndexedStack, entao os FABs
+    // coexistem. Sem uma heroTag propria em cada um, o Hero reclama de tag
     // duplicada e a navegacao quebra.
-    floatingActionButton: FloatingActionButton.extended(
-      heroTag: 'fab-eventos',
-      onPressed: _criar,
-      icon: const Icon(Icons.add),
-      label: const Text('Novo evento'),
-    ),
+    floatingActionButton: _organizador
+        ? FloatingActionButton.extended(
+            heroTag: 'fab-eventos',
+            onPressed: _criar,
+            icon: const Icon(Icons.add),
+            label: const Text('Novo evento'),
+          )
+        : null,
   );
 }
 
@@ -216,22 +260,33 @@ class _Filtros extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      TextField(
-        controller: controller,
-        textInputAction: TextInputAction.search,
-        onSubmitted: onBuscar,
-        decoration: InputDecoration(
-          hintText: 'Buscar por titulo',
-          prefixIcon: const Icon(Icons.search),
-          suffixIcon: IconButton(
-            tooltip: 'Buscar',
-            icon: const Icon(Icons.arrow_forward),
-            onPressed: () => onBuscar(controller.text),
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: TextField(
+          controller: controller,
+          textInputAction: TextInputAction.search,
+          onSubmitted: onBuscar,
+          decoration: InputDecoration(
+            hintText: 'Buscar por título',
+            prefixIcon: const Icon(Icons.search),
+            fillColor: Colors.white,
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide.none,
+            ),
+            suffixIcon: Padding(
+              padding: const EdgeInsets.all(6),
+              child: IconButton.filled(
+                tooltip: 'Buscar',
+                icon: const Icon(Icons.arrow_forward),
+                onPressed: () => onBuscar(controller.text),
+              ),
+            ),
           ),
         ),
       ),
       if (periodo != null || onLimpar != null) ...[
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -239,14 +294,22 @@ class _Filtros extends StatelessWidget {
           children: [
             if (periodo != null)
               Chip(
-                avatar: const Icon(Icons.date_range, size: 16),
+                backgroundColor: Paleta.ciano,
+                side: BorderSide.none,
+                avatar: const Icon(
+                  Icons.date_range,
+                  size: 16,
+                  color: Paleta.marinho,
+                ),
                 label: Text(
-                  'Comeca entre ${Fmt.data(periodo!.start)} e '
+                  'Começa entre ${Fmt.data(periodo!.start)} e '
                   '${Fmt.data(periodo!.end)}',
+                  style: const TextStyle(color: Paleta.marinho),
                 ),
               ),
             if (onLimpar != null)
               TextButton.icon(
+                style: TextButton.styleFrom(foregroundColor: Colors.white),
                 onPressed: onLimpar,
                 icon: const Icon(Icons.close),
                 label: const Text('Limpar filtros'),
@@ -273,7 +336,7 @@ class _Grade extends StatelessWidget {
           : constraints.maxWidth > 540
           ? 2
           : 1;
-      const espaco = 16.0;
+      const espaco = 20.0;
       final largura = (constraints.maxWidth - espaco * (colunas - 1)) / colunas;
 
       return Wrap(

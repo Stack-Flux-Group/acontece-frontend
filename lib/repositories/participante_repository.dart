@@ -4,6 +4,13 @@ import '../models/paged_model.dart';
 import '../models/participante.dart';
 
 /// Acesso as rotas de participante.
+///
+/// Permissoes (SecurityConfig + @PreAuthorize no back-end):
+///
+///  * `POST /participantes` — aberto, sem login (e o "criar conta")
+///  * `GET /participantes` — so organizador
+///  * `GET|PATCH|DELETE /participantes/{id}` — organizador, ou o proprio
+///    participante (o id do token precisa ser o do caminho)
 class ParticipanteRepository {
   ParticipanteRepository(this._client);
 
@@ -36,7 +43,10 @@ class ParticipanteRepository {
   /// nao reimplementar busca no servidor, isto varre as paginas (em lotes
   /// grandes) e filtra no cliente. Serve bem para a escala deste projeto; se a
   /// base crescer, o certo e adicionar o filtro no back-end.
-  Future<List<Participante>> buscar(String termo, {int limitePaginas = 5}) async {
+  Future<List<Participante>> buscar(
+    String termo, {
+    int limitePaginas = 5,
+  }) async {
     final alvo = termo.trim().toLowerCase();
     final encontrados = <Participante>[];
     var page = 0;
@@ -57,6 +67,15 @@ class ParticipanteRepository {
         .toList(growable: false);
   }
 
+  /// `GET /participantes/{id}`
+  ///
+  /// O participante usa para ler o proprio cadastro (tela "Meu perfil").
+  Future<Participante> buscarPorId(int id) async {
+    final data = await _client.get('/participantes/$id');
+    if (data is! Map) throw ApiException.badPayload('/participantes/$id');
+    return Participante.fromJson(data.cast<String, dynamic>());
+  }
+
   /// `POST /participantes` -> 201 + `Location`.
   ///
   /// 409 quando o CPF ja existe, e depois 409 quando o e-mail ja existe (o
@@ -69,13 +88,8 @@ class ParticipanteRepository {
 
   /// `PATCH /participantes/{id}`
   ///
-  /// Atualizacao parcial: so os campos presentes no corpo sao aplicados.
-  ///
-  /// Nota sobre o deploy atual: o `/v3/api-docs` publicado expoe `PATCH`
-  /// em `/participantes`, **sem** o `{id}`, porque a build no ar esta atras do
-  /// codigo-fonte. Aqui seguimos o contrato do fonte (`/{id}`), que e o correto;
-  /// enquanto a API nao for republicada esta chamada falha e a mensagem da
-  /// propria API aparece na tela.
+  /// Atualizacao parcial: so os campos presentes no corpo sao aplicados. A
+  /// senha nao faz parte do PATCH: nao ha como troca-la pela API.
   Future<Participante> atualizar(int id, ParticipantePatch patch) async {
     final data = await _client.patch(
       '/participantes/$id',
@@ -87,6 +101,9 @@ class ParticipanteRepository {
 
   /// `DELETE /participantes/{id}` -> 204.
   ///
-  /// Exclusao fisica; 409 se o participante tiver inscricoes.
+  /// Exclusao fisica; 409 se o participante tiver inscricoes (a chave
+  /// estrangeira barra). Quando o proprio participante se exclui, o token
+  /// continua valido ate expirar, mas aponta para ninguem — por isso a tela
+  /// encerra a sessao logo depois.
   Future<void> excluir(int id) => _client.delete('/participantes/$id');
 }

@@ -28,7 +28,11 @@ class AsyncView<T> extends StatefulWidget {
   final Future<T> Function() load;
 
   /// Constroi a tela com os dados. `reload` refaz a busca.
-  final Widget Function(BuildContext context, T data, Future<void> Function() reload)
+  final Widget Function(
+    BuildContext context,
+    T data,
+    Future<void> Function() reload,
+  )
   builder;
 
   /// Quando muda, recarrega. Serve para filtros: basta passar os filtros atuais.
@@ -150,7 +154,9 @@ class _Carregando extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const CircularProgressIndicator(),
+          CircularProgressIndicator(
+            color: Theme.of(context).colorScheme.primary,
+          ),
           if (lento) ...[
             const SizedBox(height: 24),
             ConstrainedBox(
@@ -164,9 +170,9 @@ class _Carregando extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'A API esta hospedada em uma instancia gratuita que hiberna '
-                    'quando fica sem uso. O primeiro acesso pode levar alguns '
-                    'minutos; os seguintes sao rapidos.',
+                    'O servidor é gratuito e hiberna quando fica sem uso. O '
+                    'primeiro acesso pode levar até dois minutos; os seguintes '
+                    'são rápidos.',
                     style: Theme.of(context).textTheme.bodySmall,
                     textAlign: TextAlign.center,
                   ),
@@ -208,7 +214,15 @@ class EmptyState extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icone, size: 48, color: scheme.outline),
+              Container(
+                width: 88,
+                height: 88,
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer.withValues(alpha: 0.55),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icone, size: 40, color: scheme.primary),
+              ),
               const SizedBox(height: 16),
               Text(
                 titulo,
@@ -219,9 +233,8 @@ class EmptyState extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   mensagem!,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+                  style: Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant),
                   textAlign: TextAlign.center,
                 ),
               ],

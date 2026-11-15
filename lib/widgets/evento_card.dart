@@ -1,108 +1,221 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../core/formatters.dart';
+import '../core/theme.dart';
 import '../models/evento.dart';
 import 'status_chip.dart';
 
 /// Cartao de evento na listagem.
-class EventoCard extends StatelessWidget {
+class EventoCard extends StatefulWidget {
   const EventoCard({super.key, required this.evento, required this.onTap});
 
   final Evento evento;
   final VoidCallback onTap;
 
   @override
+  State<EventoCard> createState() => _EventoCardState();
+}
+
+class _EventoCardState extends State<EventoCard> {
+  bool _sobre = false;
+
+  @override
   Widget build(BuildContext context) {
+    final evento = widget.evento;
     final texto = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
 
-    return Card(
-      child: InkWell(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            EventoFoto(url: evento.fotoUrl, altura: 140),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+    return MouseRegion(
+      onEnter: (_) => setState(() => _sobre = true),
+      onExit: (_) => setState(() => _sobre = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        transform: Matrix4.translationValues(0, _sobre ? -4 : 0, 0),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Paleta.marinho.withValues(alpha: _sobre ? 0.16 : 0.06),
+              blurRadius: _sobre ? 24 : 12,
+              offset: Offset(0, _sobre ? 10 : 4),
+            ),
+          ],
+        ),
+        child: Card(
+          child: InkWell(
+            onTap: widget.onTap,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Stack(
+                  children: [
+                    EventoFoto(
+                      url: evento.fotoUrl,
+                      altura: 150,
+                      semente: evento.id,
+                    ),
+                    Positioned(
+                      top: 12,
+                      left: 12,
+                      child: _DataSelo(data: evento.dataInicio),
+                    ),
+                    Positioned(
+                      top: 12,
+                      right: 12,
+                      child: EventoStatusChip(
+                        status: evento.status,
+                        sobreFoto: true,
+                      ),
+                    ),
+                  ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          evento.titulo,
-                          style: texto.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
+                      Text(
+                        evento.titulo,
+                        style: texto.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 10),
+                      _Linha(
+                        icone: Icons.schedule,
+                        texto: Fmt.periodo(evento.dataInicio, evento.dataFim),
+                      ),
+                      const SizedBox(height: 4),
+                      _Linha(
+                        icone: Icons.place_outlined,
+                        texto: evento.endereco.cidadeUf,
+                      ),
+                      const SizedBox(height: 4),
+                      _Linha(
+                        icone: Icons.people_alt_outlined,
+                        texto: Fmt.vagas(evento.vagas),
+                      ),
+                      if (evento.descricao.trim().isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          evento.descricao,
+                          style: texto.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
                           ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      EventoStatusChip(status: evento.status),
+                      ],
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  _Linha(
-                    icone: Icons.calendar_today,
-                    texto: Fmt.periodo(evento.dataInicio, evento.dataFim),
-                  ),
-                  const SizedBox(height: 4),
-                  _Linha(
-                    icone: Icons.place_outlined,
-                    texto: evento.endereco.cidadeUf,
-                  ),
-                  const SizedBox(height: 4),
-                  _Linha(
-                    icone: Icons.people_outline,
-                    texto: Fmt.vagas(evento.vagas),
-                  ),
-                  if (evento.descricao.trim().isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      evento.descricao,
-                      style: texto.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
+/// "04 DEZ" no canto da foto, como num ingresso.
+class _DataSelo extends StatelessWidget {
+  const _DataSelo({required this.data});
+
+  final DateTime data;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 50,
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(12),
+      boxShadow: [
+        BoxShadow(
+          color: Paleta.marinho.withValues(alpha: 0.2),
+          blurRadius: 8,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    ),
+    child: Column(
+      children: [
+        Text(
+          data.day.toString().padLeft(2, '0'),
+          style: const TextStyle(
+            fontSize: 18,
+            height: 1.1,
+            fontWeight: FontWeight.w800,
+            color: Paleta.marinho,
+          ),
+        ),
+        Text(
+          Fmt.mesCurto(data),
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.8,
+            color: Paleta.azul,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 /// Foto do evento.
 ///
 /// `fotoUrl` e um texto livre na API (sem upload, sem validacao), entao a URL
-/// pode estar nula, quebrada ou bloqueada por CORS de imagem. Em qualquer desses
-/// casos cai para um fundo neutro em vez de deixar um erro na tela.
+/// pode estar nula, quebrada ou bloqueada. Em qualquer desses casos cai para um
+/// degrade da paleta, sempre o mesmo para o mesmo evento ([semente]).
 class EventoFoto extends StatelessWidget {
-  const EventoFoto({super.key, required this.url, required this.altura});
+  const EventoFoto({
+    super.key,
+    required this.url,
+    required this.altura,
+    this.semente = 0,
+  });
 
   final String? url;
   final double altura;
+  final int semente;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final cores =
+        Paleta.degradesEvento[semente.abs() % Paleta.degradesEvento.length];
     final placeholder = Container(
       height: altura,
       width: double.infinity,
-      color: scheme.surfaceContainerHighest,
-      alignment: Alignment.center,
-      child: Icon(
-        Icons.celebration_outlined,
-        size: altura / 3,
-        color: scheme.outline,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: cores,
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            right: -altura * 0.15,
+            bottom: -altura * 0.2,
+            child: Icon(
+              Icons.celebration_rounded,
+              size: altura * 0.9,
+              color: Colors.white.withValues(alpha: 0.08),
+            ),
+          ),
+          Center(
+            child: Icon(
+              Icons.celebration_outlined,
+              size: altura / 3.2,
+              color: Paleta.ciano.withValues(alpha: 0.85),
+            ),
+          ),
+        ],
       ),
     );
 
@@ -132,14 +245,13 @@ class _Linha extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Row(
       children: [
-        Icon(icone, size: 15, color: scheme.onSurfaceVariant),
+        Icon(icone, size: 15, color: scheme.primary),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             texto,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: scheme.onSurfaceVariant),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

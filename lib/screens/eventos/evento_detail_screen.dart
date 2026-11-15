@@ -3,37 +3,49 @@ import 'package:material_ui/material_ui.dart';
 import '../../core/api_exception.dart';
 import '../../core/formatters.dart';
 import '../../core/theme.dart';
+import '../../models/auth.dart';
 import '../../models/evento.dart';
 import '../../models/inscricao.dart';
-import '../../models/participante.dart';
+import '../../models/status_inscricao.dart';
 import '../../services.dart';
 import '../../widgets/async_view.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/evento_card.dart';
 import '../../widgets/pickers.dart';
 import '../../widgets/status_chip.dart';
+import '../inscricoes/inscricoes_list_screen.dart';
 import 'evento_form_screen.dart';
 
-/// Detalhe do evento: dados, endereco resolvido pelo CEP, ocupacao de vagas e
-/// acoes (editar, excluir, inscrever).
+/// Detalhe do evento: dados, endereco resolvido pelo CEP e as acoes que o papel
+/// permite.
+///
+///  * organizador: ocupacao de vagas, ver inscricoes, editar e excluir
+///  * participante: a propria inscricao neste evento, ou o botao de inscrever-se
 class EventoDetailScreen extends StatefulWidget {
-  const EventoDetailScreen({super.key, required this.eventoId});
+  const EventoDetailScreen({
+    super.key,
+    required this.eventoId,
+    required this.usuario,
+  });
 
   final int eventoId;
+  final UsuarioLogado usuario;
 
   @override
   State<EventoDetailScreen> createState() => _EventoDetailScreenState();
 }
 
-/// O evento mais a ocupacao de vagas, quando o modulo de inscricoes existir.
 class _Detalhe {
-  const _Detalhe(this.evento, this.ocupadas);
+  const _Detalhe(this.evento, {this.ocupadas, this.minha});
 
   final Evento evento;
 
-  /// `null` quando a API publicada nao tem `/inscricoes` — nesse caso nao da
-  /// para saber a ocupacao, e a tela mostra apenas o total de vagas.
+  /// Vagas ocupadas (PENDENTE + CONFIRMADA). So o organizador consegue contar:
+  /// para o participante a API devolve apenas as inscricoes dele.
   final int? ocupadas;
+
+  /// Inscricao ativa do participante logado neste evento.
+  final Inscricao? minha;
 }
 
 class _EventoDetailScreenState extends State<EventoDetailScreen> {
@@ -42,29 +54,33 @@ class _EventoDetailScreenState extends State<EventoDetailScreen> {
   /// `true` se algo mudou e a lista anterior precisa recarregar.
   bool _alterou = false;
 
+  bool _inscrevendo = false;
+
+  bool get _organizador => widget.usuario.ehOrganizador;
+
   Future<_Detalhe> _carregar() async {
     final services = Services.of(context);
     final evento = await services.eventos.buscarPorId(widget.eventoId);
-    int? ocupadas;
-    try {
-      ocupadas = await services.inscricoes.contarAtivasDoEvento(evento.id);
-    } on ApiException catch (e) {
-      // Modulo de inscricoes ausente nesta build da API: segue sem a ocupacao.
-      if (!e.isMissingEndpoint) rethrow;
+    if (_organizador) {
+      final ocupadas = await services.inscricoes.contarAtivasDoEvento(
+        evento.id,
+      );
+      return _Detalhe(evento, ocupadas: ocupadas);
     }
-    return _Detalhe(evento, ocupadas);
+    final minha = await services.inscricoes.minhaAtivaNoEvento(evento.id);
+    return _Detalhe(evento, minha: minha);
   }
+
+  void _recarregar() => setState(() {
+    _versao++;
+    _alterou = true;
+  });
 
   Future<void> _editar(Evento evento) async {
     final salvou = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => EventoFormScreen(evento: evento)),
     );
-    if (salvou == true && mounted) {
-      setState(() {
-        _versao++;
-        _alterou = true;
-      });
-    }
+    if (salvou == true && mounted) _recarregar();
   }
 
   Future<void> _excluir(Evento evento) async {
@@ -72,15 +88,15 @@ class _EventoDetailScreenState extends State<EventoDetailScreen> {
       context,
       titulo: 'Excluir "${evento.titulo}"?',
       mensagem:
-          'A exclusao e definitiva. Se o evento tiver inscricoes, a API vai '
-          'recusar a operacao.',
+          'A exclusão é definitiva. Se o evento tiver inscrições, a API vai '
+          'recusar a operação.',
     );
     if (!confirmado || !mounted) return;
 
     try {
       await Services.of(context).eventos.deletar(evento.id);
       if (!mounted) return;
-      mostrarSucesso(context, 'Evento excluido.');
+      mostrarSucesso(context, 'Evento excluído.');
       Navigator.of(context).pop(true);
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -88,47 +104,60 @@ class _EventoDetailScreenState extends State<EventoDetailScreen> {
     }
   }
 
-  Future<void> _inscrever(Evento evento) async {
-    final services = Services.of(context);
-    final Participante? participante = await escolherParticipante(
-      context,
-      services.participantes,
+  Future<void> _verInscricoes(Evento evento) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => InscricoesListScreen(
+          usuario: widget.usuario,
+          eventoInicial: evento,
+        ),
+      ),
     );
-    if (participante == null || !mounted) return;
+    // O organizador pode ter cancelado inscricoes: a ocupacao mudou.
+    if (mounted) setState(() => _versao++);
+  }
 
+  /// `POST /inscricoes` em nome de quem esta logado. A regra (vagas, duplicada,
+  /// encerrado) e toda do servidor; a recusa dele e mostrada como vem.
+  Future<void> _inscrever(Evento evento) async {
+    setState(() => _inscrevendo = true);
     try {
-      await services.inscricoes.criar(
-        InscricaoInput(participanteId: participante.id, eventoId: evento.id),
-      );
+      await Services.of(context).inscricoes
+          .criar(InscricaoInput(eventoId: evento.id));
       if (!mounted) return;
       mostrarSucesso(
         context,
-        '${participante.nome} inscrito(a). Status inicial: pendente.',
+        'Inscrição feita! Ela fica pendente até o organizador confirmar.',
       );
-      setState(() {
-        _versao++;
-        _alterou = true;
-      });
+      _recarregar();
     } on ApiException catch (e) {
       if (!mounted) return;
       mostrarErro(context, e);
+    } finally {
+      if (mounted) setState(() => _inscrevendo = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Detalhe do evento'),
-      leading: BackButton(onPressed: () => Navigator.of(context).pop(_alterou)),
-    ),
-    body: AsyncView<_Detalhe>(
-      reloadKey: _versao,
-      load: _carregar,
-      builder: (context, detalhe, _) => _Conteudo(
-        detalhe: detalhe,
-        onEditar: () => _editar(detalhe.evento),
-        onExcluir: () => _excluir(detalhe.evento),
-        onInscrever: () => _inscrever(detalhe.evento),
+  Widget build(BuildContext context) => PopScope(
+    canPop: false,
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop) Navigator.of(context).pop(_alterou);
+    },
+    child: Scaffold(
+      body: AsyncView<_Detalhe>(
+        reloadKey: _versao,
+        load: _carregar,
+        builder: (context, detalhe, _) => _Conteudo(
+          detalhe: detalhe,
+          organizador: _organizador,
+          inscrevendo: _inscrevendo,
+          onVoltar: () => Navigator.of(context).pop(_alterou),
+          onEditar: () => _editar(detalhe.evento),
+          onExcluir: () => _excluir(detalhe.evento),
+          onVerInscricoes: () => _verInscricoes(detalhe.evento),
+          onInscrever: () => _inscrever(detalhe.evento),
+        ),
       ),
     ),
   );
@@ -137,166 +166,194 @@ class _EventoDetailScreenState extends State<EventoDetailScreen> {
 class _Conteudo extends StatelessWidget {
   const _Conteudo({
     required this.detalhe,
+    required this.organizador,
+    required this.inscrevendo,
+    required this.onVoltar,
     required this.onEditar,
     required this.onExcluir,
+    required this.onVerInscricoes,
     required this.onInscrever,
   });
 
   final _Detalhe detalhe;
+  final bool organizador;
+  final bool inscrevendo;
+  final VoidCallback onVoltar;
   final VoidCallback onEditar;
   final VoidCallback onExcluir;
+  final VoidCallback onVerInscricoes;
   final VoidCallback onInscrever;
 
   @override
   Widget build(BuildContext context) {
     final evento = detalhe.evento;
     final texto = Theme.of(context).textTheme;
-    final scheme = Theme.of(context).colorScheme;
-    final ocupadas = detalhe.ocupadas;
-    final lotado = ocupadas != null && ocupadas >= evento.vagas;
+    final largo = MediaQuery.sizeOf(context).width >= 980;
+
+    final informacoes = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (evento.descricao.trim().isNotEmpty) ...[
+          Text('Sobre o evento', style: texto.titleLarge),
+          const SizedBox(height: 10),
+          Text(evento.descricao, style: texto.bodyLarge?.copyWith(height: 1.6)),
+          const SizedBox(height: 28),
+        ],
+        _Bloco(
+          titulo: 'Quando',
+          icone: Icons.calendar_month,
+          linhas: [
+            _Item(
+              'Início',
+              '${Fmt.dataLonga(evento.dataInicio)}, '
+                  '${Fmt.hora(evento.dataInicio)}',
+            ),
+            _Item(
+              'Fim',
+              '${Fmt.dataLonga(evento.dataFim)}, ${Fmt.hora(evento.dataFim)}',
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        // O endereco nao e digitado: o back-end preenche via ViaCEP a partir
+        // do CEP, entao aqui ele e sempre somente leitura.
+        _Bloco(
+          titulo: 'Onde',
+          icone: Icons.place,
+          linhas: [
+            _Item(
+              'Logradouro',
+              evento.endereco.numero == null || evento.endereco.numero!.isEmpty
+                  ? evento.endereco.logradouro
+                  : '${evento.endereco.logradouro}, ${evento.endereco.numero}',
+            ),
+            _Item('Bairro', evento.endereco.bairro),
+            _Item('Cidade', evento.endereco.cidadeUf),
+            _Item('CEP', Fmt.cep(evento.endereco.cep)),
+          ],
+        ),
+      ],
+    );
+
+    final painel = organizador
+        ? _PainelOrganizador(
+            evento: evento,
+            ocupadas: detalhe.ocupadas ?? 0,
+            onEditar: onEditar,
+            onExcluir: onExcluir,
+            onVerInscricoes: onVerInscricoes,
+          )
+        : _PainelParticipante(
+            evento: evento,
+            minha: detalhe.minha,
+            inscrevendo: inscrevendo,
+            onInscrever: onInscrever,
+          );
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: 48),
+      padding: const EdgeInsets.only(bottom: 56),
       children: [
+        _Capa(evento: evento, onVoltar: onVoltar),
+        const SizedBox(height: 28),
         ContentWidth(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 16),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: EventoFoto(url: evento.fotoUrl, altura: 240),
-              ),
-              const SizedBox(height: 20),
-              Text(evento.titulo, style: texto.headlineSmall),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  EventoStatusChip(status: evento.status),
-                  if (ocupadas != null)
-                    VagasChip(ocupadas: ocupadas, vagas: evento.vagas)
-                  else
-                    Chip(
-                      avatar: const Icon(Icons.people_outline, size: 16),
-                      label: Text(Fmt.vagas(evento.vagas)),
-                    ),
-                ],
-              ),
-              if (evento.descricao.trim().isNotEmpty) ...[
-                const SizedBox(height: 20),
-                Text(evento.descricao, style: texto.bodyLarge),
-              ],
-              const SizedBox(height: 24),
-              _Bloco(
-                titulo: 'Quando',
-                linhas: [
-                  _Item(
-                    Icons.play_arrow,
-                    'Inicio',
-                    '${Fmt.dataLonga(evento.dataInicio)}, '
-                        '${Fmt.hora(evento.dataInicio)}',
-                  ),
-                  _Item(
-                    Icons.stop,
-                    'Fim',
-                    '${Fmt.dataLonga(evento.dataFim)}, '
-                        '${Fmt.hora(evento.dataFim)}',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // O endereco nao e digitado: o back-end preenche via ViaCEP a
-              // partir do CEP, entao aqui ele e sempre somente leitura.
-              _Bloco(
-                titulo: 'Onde',
-                linhas: [
-                  _Item(Icons.markunread_mailbox_outlined, 'CEP',
-                      Fmt.cep(evento.endereco.cep)),
-                  _Item(Icons.signpost_outlined, 'Logradouro',
-                      evento.endereco.numero == null ||
-                              evento.endereco.numero!.isEmpty
-                          ? evento.endereco.logradouro
-                          : '${evento.endereco.logradouro}, '
-                                '${evento.endereco.numero}'),
-                  _Item(Icons.holiday_village_outlined, 'Bairro',
-                      evento.endereco.bairro),
-                  _Item(Icons.location_city, 'Cidade',
-                      evento.endereco.cidadeUf),
-                ],
-              ),
-              const SizedBox(height: 28),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  FilledButton.icon(
-                    onPressed: evento.encerrado || lotado ? null : onInscrever,
-                    icon: const Icon(Icons.person_add_alt),
-                    label: const Text('Inscrever participante'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: onEditar,
-                    icon: const Icon(Icons.edit_outlined),
-                    label: const Text('Editar'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: onExcluir,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: scheme.error,
-                    ),
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('Excluir'),
-                  ),
-                ],
-              ),
-              if (evento.encerrado) ...[
-                const SizedBox(height: 12),
-                _Aviso(
-                  'Este evento ja foi encerrado, por isso a API nao aceita '
-                  'novas inscricoes.',
+          child: largo
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: informacoes),
+                    const SizedBox(width: 28),
+                    SizedBox(width: 340, child: painel),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [painel, const SizedBox(height: 28), informacoes],
                 ),
-              ] else if (lotado) ...[
-                const SizedBox(height: 12),
-                _Aviso(
-                  'Todas as $ocupadas vagas estao ocupadas. Cancelar uma '
-                  'inscricao libera vaga.',
-                ),
-              ],
-              const SizedBox(height: 16),
-            ],
-          ),
         ),
       ],
     );
   }
 }
 
-class _Aviso extends StatelessWidget {
-  const _Aviso(this.texto);
+/// Foto (ou degrade) com o titulo por cima, num veu escuro da paleta.
+class _Capa extends StatelessWidget {
+  const _Capa({required this.evento, required this.onVoltar});
 
-  final String texto;
+  final Evento evento;
+  final VoidCallback onVoltar;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
+    final texto = Theme.of(context).textTheme;
+    return SizedBox(
+      height: 300,
+      child: Stack(
+        fit: StackFit.expand,
         children: [
-          Icon(Icons.info_outline, size: 18, color: scheme.onSurfaceVariant),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              texto,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: scheme.onSurfaceVariant,
+          EventoFoto(url: evento.fotoUrl, altura: 300, semente: evento.id),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Paleta.marinho.withValues(alpha: 0.25),
+                  Paleta.marinho.withValues(alpha: 0.9),
+                ],
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: IconButton(
+                  tooltip: 'Voltar',
+                  onPressed: onVoltar,
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.white.withValues(alpha: 0.15),
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.arrow_back),
+                ),
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 28),
+              child: ContentWidth(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    EventoStatusChip(status: evento.status, sobreFoto: true),
+                    const SizedBox(height: 12),
+                    Text(
+                      evento.titulo,
+                      style: texto.headlineMedium?.copyWith(
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 18,
+                      runSpacing: 6,
+                      children: [
+                        _InfoCapa(
+                          Icons.schedule,
+                          Fmt.periodo(evento.dataInicio, evento.dataFim),
+                        ),
+                        _InfoCapa(
+                          Icons.place_outlined,
+                          evento.endereco.cidadeUf,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -306,54 +363,312 @@ class _Aviso extends StatelessWidget {
   }
 }
 
-class _Item {
-  const _Item(this.icone, this.rotulo, this.valor);
+class _InfoCapa extends StatelessWidget {
+  const _InfoCapa(this.icone, this.texto);
+
   final IconData icone;
-  final String rotulo;
-  final String valor;
+  final String texto;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icone, size: 16, color: Paleta.ciano),
+      const SizedBox(width: 6),
+      Text(texto, style: const TextStyle(color: Paleta.ciano)),
+    ],
+  );
 }
 
-class _Bloco extends StatelessWidget {
-  const _Bloco({required this.titulo, required this.linhas});
+class _PainelOrganizador extends StatelessWidget {
+  const _PainelOrganizador({
+    required this.evento,
+    required this.ocupadas,
+    required this.onEditar,
+    required this.onExcluir,
+    required this.onVerInscricoes,
+  });
 
-  final String titulo;
-  final List<_Item> linhas;
+  final Evento evento;
+  final int ocupadas;
+  final VoidCallback onEditar;
+  final VoidCallback onExcluir;
+  final VoidCallback onVerInscricoes;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final texto = Theme.of(context).textTheme;
+    final fracao = evento.vagas == 0
+        ? 0.0
+        : (ocupadas / evento.vagas).clamp(0.0, 1.0);
+    final lotado = ocupadas >= evento.vagas;
+
+    return _Painel(
+      children: [
+        Text('Ocupação', style: texto.titleMedium),
+        const SizedBox(height: 14),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              '$ocupadas',
+              style: texto.displaySmall?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: scheme.primary,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8, left: 6),
+              child: Text(
+                'de ${Fmt.vagas(evento.vagas)}',
+                style: texto.bodyLarge?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: fracao,
+            minHeight: 10,
+            backgroundColor: scheme.surfaceContainerHighest,
+            color: lotado ? scheme.error : Paleta.turquesa,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          lotado
+              ? 'Lotado. Cancelar uma inscrição libera vaga.'
+              : 'Pendentes e confirmadas ocupam vaga; canceladas liberam.',
+          style: texto.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 22),
+        FilledButton.icon(
+          onPressed: onVerInscricoes,
+          icon: const Icon(Icons.how_to_reg),
+          label: const Text('Ver inscrições'),
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: onEditar,
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('Editar'),
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: onExcluir,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: scheme.error,
+            side: BorderSide(color: scheme.error.withValues(alpha: 0.4)),
+          ),
+          icon: const Icon(Icons.delete_outline),
+          label: const Text('Excluir'),
+        ),
+      ],
+    );
+  }
+}
+
+class _PainelParticipante extends StatelessWidget {
+  const _PainelParticipante({
+    required this.evento,
+    required this.minha,
+    required this.inscrevendo,
+    required this.onInscrever,
+  });
+
+  final Evento evento;
+  final Inscricao? minha;
+  final bool inscrevendo;
+  final VoidCallback onInscrever;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final texto = Theme.of(context).textTheme;
+    final inscricao = minha;
+
+    if (inscricao != null) {
+      return _Painel(
+        destaque: true,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.confirmation_number, color: Paleta.ciano),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Você está inscrito',
+                  style: texto.titleMedium?.copyWith(color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: StatusInscricaoChip(status: inscricao.status),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            inscricao.status == StatusInscricao.pendente
+                ? 'Sua inscrição aguarda a confirmação do organizador.'
+                : 'Sua vaga está confirmada. Até lá!',
+            style: texto.bodyMedium?.copyWith(color: Paleta.ciano),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Inscrição feita em ${Fmt.dataHora(inscricao.dataInscricao)}',
+            style: texto.bodySmall?.copyWith(
+              color: Colors.white.withValues(alpha: 0.7),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final encerrado = evento.encerrado;
+    return _Painel(
+      children: [
+        Text('Inscrição', style: texto.titleMedium),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Icon(Icons.people_alt_outlined, color: scheme.primary, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '${Fmt.vagas(evento.vagas)} no total',
+                style: texto.bodyLarge,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        FilledButton.icon(
+          onPressed: encerrado || inscrevendo ? null : onInscrever,
+          icon: inscrevendo
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.how_to_reg),
+          label: Text(
+            encerrado
+                ? 'Evento encerrado'
+                : inscrevendo
+                ? 'Inscrevendo...'
+                : 'Quero me inscrever',
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          encerrado
+              ? 'Este evento já terminou e não aceita novas inscrições.'
+              : 'Sua inscrição começa como pendente e é confirmada pelo '
+                    'organizador. Se as vagas acabarem, avisamos na hora.',
+          style: texto.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+}
+
+class _Painel extends StatelessWidget {
+  const _Painel({required this.children, this.destaque = false});
+
+  final List<Widget> children;
+  final bool destaque;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        color: destaque ? null : scheme.surfaceContainerLowest,
+        gradient: destaque ? Paleta.degradeProfundo : null,
+        borderRadius: BorderRadius.circular(20),
+        border: destaque ? null : Border.all(color: scheme.outlineVariant),
+        boxShadow: [
+          BoxShadow(
+            color: Paleta.marinho.withValues(alpha: 0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      ),
+    );
+  }
+}
+
+class _Item {
+  const _Item(this.rotulo, this.valor);
+  final String rotulo;
+  final String valor;
+}
+
+class _Bloco extends StatelessWidget {
+  const _Bloco({
+    required this.titulo,
+    required this.icone,
+    required this.linhas,
+  });
+
+  final String titulo;
+  final IconData icone;
+  final List<_Item> linhas;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final texto = Theme.of(context).textTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: scheme.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            titulo.toUpperCase(),
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              letterSpacing: 1,
-              fontWeight: FontWeight.w700,
-            ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icone, size: 18, color: scheme.onPrimaryContainer),
+              ),
+              const SizedBox(width: 12),
+              Text(titulo, style: texto.titleMedium),
+            ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           for (final linha in linhas)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(linha.icone, size: 18, color: scheme.onSurfaceVariant),
-                  const SizedBox(width: 12),
                   SizedBox(
-                    width: 92,
+                    width: 100,
                     child: Text(
                       linha.rotulo,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      style: texto.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
@@ -361,7 +676,9 @@ class _Bloco extends StatelessWidget {
                   Expanded(
                     child: Text(
                       linha.valor.isEmpty ? '—' : linha.valor,
-                      style: Theme.of(context).textTheme.bodyMedium,
+                      style: texto.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],

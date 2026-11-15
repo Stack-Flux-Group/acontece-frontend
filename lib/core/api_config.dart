@@ -1,28 +1,31 @@
 /// Configuracao de rede do app.
 ///
-/// A API (`acontece-api`) nao envia nenhum header `Access-Control-Allow-*`.
-/// Por isso o site nunca fala com `https://acontece-api.onrender.com` direto:
-/// ele chama um caminho relativo (`/api/...`), que e da MESMA origem do site, e
-/// quem repassa para a API e a camada de hospedagem:
+/// A API (`acontece-api`) envia CORS para uma lista fixa de origens
+/// (`cors.allowed-origins` no back-end). Hoje:
 ///
-///   * em desenvolvimento: `tools/dev_proxy.mjs`
-///   * em producao: uma regra de rewrite configurada no host do site
+///   * `http://localhost:5173` e `http://localhost:3000` (desenvolvimento)
+///   * `https://acontece-frontend.vercel.app` (producao)
 ///
-/// Mesma origem significa que o navegador nem chega a considerar CORS.
-///
-/// Para apontar para outro lugar (por exemplo um back-end local em
-/// `http://localhost:8080`, que tambem contorna o CORS fora do navegador):
+/// Por isso o site fala direto com a API, sem proxy, desde que seja servido de
+/// uma dessas origens. Em desenvolvimento:
 ///
 /// ```sh
-/// flutter run -d web-server --dart-define=API_BASE_URL=http://localhost:8080
+/// flutter run -d chrome --web-port=5173
+/// ```
+///
+/// Para apontar para outro back-end (por exemplo o local):
+///
+/// ```sh
+/// flutter run -d chrome --web-port=5173 --dart-define=API_BASE_URL=http://localhost:8080
 /// ```
 class ApiConfig {
   const ApiConfig._();
 
-  /// Prefixo de todas as chamadas. Relativo por padrao (mesma origem).
+  /// Endereco da API. Absoluto por padrao; um valor relativo (ex.: `/api`) e
+  /// resolvido contra a origem da pagina, caso alguem prefira usar um proxy.
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: '/api',
+    defaultValue: 'https://acontece-api.onrender.com',
   );
 
   /// A instancia gratuita do Render hiberna; o cold start medido foi de ~146 s.

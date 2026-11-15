@@ -8,9 +8,11 @@ import '../../models/participante.dart';
 import '../../services.dart';
 import '../../widgets/error_banner.dart';
 
-/// Cadastro e edicao de participante.
+/// Cadastro (pelo organizador) e edicao de participante (pelo organizador ou
+/// pelo proprio participante, em "Meu perfil").
 ///
-/// A criacao manda o `ParticipanteRequest` inteiro. A edicao manda um
+/// A criacao manda o `ParticipanteRequest` inteiro, inclusive a senha com que
+/// a pessoa vai entrar. A edicao manda um
 /// `ParticipantePatchRequest` com **apenas o que mudou** — e e por isso que o
 /// registro original precisa estar em maos, para comparar
 /// ([ParticipantePatch.diff]).
@@ -33,6 +35,8 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
   late final TextEditingController _email;
   late final TextEditingController _cpf;
   late final TextEditingController _telefone;
+  final _senha = TextEditingController();
+  bool _mostrarSenha = false;
 
   bool _salvando = false;
   ApiException? _erro;
@@ -55,6 +59,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
     _email.dispose();
     _cpf.dispose();
     _telefone.dispose();
+    _senha.dispose();
     super.dispose();
   }
 
@@ -96,6 +101,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
             email: _email.text,
             cpf: _cpf.text,
             telefone: _telefone.text,
+            senha: _senha.text,
           ),
         );
         if (!mounted) return;
@@ -160,7 +166,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
                       decoration: InputDecoration(
                         labelText: 'E-mail *',
                         errorText: _erroDoCampo('email'),
-                        helperText: 'Precisa ser unico entre os participantes',
+                        helperText: 'Precisa ser único entre os participantes',
                       ),
                       validator: Validators.email,
                     ),
@@ -174,7 +180,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
                         hintText: '000.000.000-00',
                         errorText: _erroDoCampo('cpf'),
                         helperText:
-                            'Com ou sem pontuacao. Precisa ser unico e valido',
+                            'Com ou sem pontuação. Precisa ser único e válido',
                       ),
                       validator: Validators.cpf,
                     ),
@@ -187,10 +193,40 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
                         labelText: 'Telefone',
                         hintText: '(46) 99988-7766',
                         errorText: _erroDoCampo('telefone'),
-                        helperText: 'Opcional. 10 ou 11 digitos',
+                        helperText: 'Opcional. 10 ou 11 dígitos',
                       ),
                       validator: Validators.telefone,
                     ),
+
+                    // A senha so existe na criacao: o PATCH da API nao a aceita,
+                    // entao nao ha como troca-la depois.
+                    if (!widget.editando) ...[
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _senha,
+                        obscureText: !_mostrarSenha,
+                        decoration: InputDecoration(
+                          labelText: 'Senha de acesso *',
+                          helperText:
+                              'Entre 8 e 72 caracteres. É com ela que o '
+                              'participante vai entrar no site',
+                          errorText: _erroDoCampo('senha'),
+                          suffixIcon: IconButton(
+                            tooltip: _mostrarSenha
+                                ? 'Ocultar senha'
+                                : 'Mostrar senha',
+                            onPressed: () =>
+                                setState(() => _mostrarSenha = !_mostrarSenha),
+                            icon: Icon(
+                              _mostrarSenha
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                            ),
+                          ),
+                        ),
+                        validator: Validators.senha,
+                      ),
+                    ],
 
                     if (widget.editando && telefoneOriginal.isNotEmpty) ...[
                       const SizedBox(height: 8),
@@ -220,7 +256,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
                             _salvando
                                 ? 'Salvando...'
                                 : widget.editando
-                                ? 'Salvar alteracoes'
+                                ? 'Salvar alterações'
                                 : 'Cadastrar',
                           ),
                         ),

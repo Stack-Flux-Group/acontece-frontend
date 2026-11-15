@@ -51,13 +51,11 @@ class ApiException implements Exception {
   bool get isServerError => status != null && status! >= 500;
   bool get hasFieldErrors => fieldErrors.isNotEmpty;
 
-  /// A rota nao existe nesta build da API (e nao "o registro nao existe").
-  ///
-  /// O deploy atual responde `404 "No static resource inscricoes."` porque o
-  /// modulo de inscricoes ainda nao foi publicado. Distinguir os dois casos
-  /// evita mostrar "nao encontrado" quando o certo e "modulo indisponivel".
-  bool get isMissingEndpoint =>
-      status == 404 && message.toLowerCase().contains('no static resource');
+  /// Sem token, token vencido ou credenciais erradas no login.
+  bool get isUnauthorized => status == 401;
+
+  /// Logado, mas o papel nao permite a operacao.
+  bool get isForbidden => status == 403;
 
   /// Mensagem do erro de um campo, ou `null` se o campo passou.
   String? forField(String field) {
@@ -103,17 +101,19 @@ class ApiException implements Exception {
     kind: ApiErrorKind.network,
     path: path,
     message:
-        'Nao foi possivel falar com a API. Verifique se o proxy de '
-        'desenvolvimento esta rodando (node tools/dev_proxy.mjs).',
+        'Não foi possível falar com a API. Verifique sua conexão com a '
+        'internet. Rodando localmente? O site precisa estar em uma origem '
+        'liberada no CORS da API: http://localhost:5173 ou '
+        'http://localhost:3000.',
   );
 
   factory ApiException.timeout(String path) => ApiException(
     kind: ApiErrorKind.timeout,
     path: path,
     message:
-        'A API nao respondeu em ${ApiConfig.timeout.inSeconds} '
-        'segundos. A instancia gratuita do Render hiberna e pode levar '
-        'alguns minutos para acordar.',
+        'A API não respondeu em ${ApiConfig.timeout.inSeconds} '
+        'segundos. O servidor gratuito hiberna quando fica sem uso e pode '
+        'levar alguns minutos para acordar. Tente de novo.',
   );
 
   factory ApiException.badPayload(String path) => ApiException(
@@ -124,33 +124,27 @@ class ApiException implements Exception {
 
   /// A requisicao nunca chegou a API: voltou uma pagina HTML.
   ///
-  /// O sintoma e sempre o mesmo. O app pede `/api/...`, um caminho relativo, e
-  /// se nao houver nada repassando esse prefixo o pedido cai no servidor de
-  /// arquivos do proprio site, que por ser um servidor de SPA responde
-  /// `index.html` com status 200 em vez de 404. Sem distinguir esse caso, o erro
-  /// aparece como "formato inesperado", que nao diz o que fazer.
+  /// Acontece quando [ApiConfig.baseUrl] aponta para o servidor de arquivos do
+  /// proprio site (um caminho relativo sem proxy, por exemplo), que por ser um
+  /// servidor de SPA responde `index.html` com status 200 em vez de 404.
   factory ApiException.misrouted(String path) => ApiException(
     kind: ApiErrorKind.misrouted,
     path: path,
-    message: ApiConfig.isSameOrigin
-        ? 'A requisicao nao chegou a API: voltou uma pagina HTML em vez de '
-              'JSON.\n\nEm desenvolvimento isso quer dizer que o endereco '
-              'aberto e o do servidor do Flutter, e nao o do proxy. Abra '
-              'http://localhost:8081 e confirme que "node tools/dev_proxy.mjs" '
-              'esta rodando.\n\nEm producao, falta a regra de rewrite de '
-              '/api/* para a API no host do site.'
-        : 'A requisicao nao chegou a API: voltou uma pagina HTML em vez de '
-              'JSON. Verifique se ${ApiConfig.baseUrl} e realmente o endereco '
-              'da API.',
+    message:
+        'A requisição não chegou à API: voltou uma página HTML em vez de '
+        'JSON. Verifique se "${ApiConfig.baseUrl}" é realmente o endereço da '
+        'API (configurável com --dart-define=API_BASE_URL).',
   );
 
   static String _genericFor(int status) => switch (status) {
-    400 => 'Requisicao invalida.',
-    404 => 'Recurso nao encontrado.',
-    405 => 'Esta operacao nao esta disponivel nesta versao da API.',
+    400 => 'Requisição inválida.',
+    401 => 'Sua sessão expirou ou você não está autenticado. Entre novamente.',
+    403 => 'Você não tem permissão para esta operação.',
+    404 => 'Recurso não encontrado.',
+    405 => 'Esta operação não está disponível nesta versão da API.',
     409 => 'Conflito de dados.',
     >= 500 => 'Erro interno do servidor.',
-    _ => 'Falha na requisicao (HTTP $status).',
+    _ => 'Falha na requisição (HTTP $status).',
   };
 
   @override
@@ -163,6 +157,6 @@ enum ApiErrorKind {
   timeout,
   payload,
 
-  /// O pedido nao chegou a API (proxy ausente ou endereco errado).
+  /// O pedido nao chegou a API (endereco errado).
   misrouted,
 }

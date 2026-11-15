@@ -1,7 +1,9 @@
 import 'dart:convert';
 
 import 'package:acontece_frontend/core/api_client.dart';
+import 'package:acontece_frontend/core/token_storage.dart';
 import 'package:acontece_frontend/main.dart';
+import 'package:acontece_frontend/models/auth.dart';
 import 'package:acontece_frontend/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -12,8 +14,7 @@ import 'package:material_ui/material_ui.dart';
 
 /// Testes de interface com um cliente HTTP falso que devolve exatamente os
 /// corpos que a API em producao devolve. Assim a UI e exercitada de verdade
-/// (incluindo a leitura das datas naive com fracao de segundo e a sondagem do
-/// modulo de inscricoes) sem depender da rede.
+/// (login, papeis, datas naive com fracao de segundo) sem depender da rede.
 
 /// Resposta real de `GET /evento/listar/`.
 const _eventosJson = '''
@@ -32,41 +33,86 @@ const _eventosJson = '''
   "fotoUrl":null}]
 ''';
 
-/// Resposta real de `GET /inscricoes` no deploy atual, que nao tem o modulo.
-const _inscricoesAusente = '''
-{"timestamp":"2026-11-15T00:49:16.412392651Z","status":404,"error":"Not Found",
- "message":"No static resource inscricoes.","path":"/inscricoes",
- "fieldErrors":[]}
-''';
+String get _radarTech => jsonEncode((jsonDecode(_eventosJson) as List)[0]);
 
-/// Monta o app com um cliente que responde conforme [rotas].
-///
-/// A chave e casada contra o caminho da requisicao, o que torna visivel qual
-/// rota cada tela realmente chama.
-Widget _appCom(Map<String, http.Response> Function(http.Request) responder) {
+/// Resposta de `POST /inscricoes`: a inscricao criada, sempre PENDENTE.
+const _minhaInscricao =
+    '{"id":10,"participanteId":7,"participanteNome":"Maria",'
+    '"eventoId":1,"eventoTitulo":"Radar Tech","status":"PENDENTE",'
+    '"dataInscricao":"2026-11-15T10:00:00"}';
+
+const _paginaVazia =
+    '{"content":[],"page":{"size":20,"number":0,"totalElements":0,'
+    '"totalPages":0}}';
+
+/// JWT no formato do `TokenService` (a assinatura nao importa no cliente).
+String _jwt(int id, String email, Papel papel) {
+  String parte(Object json) =>
+      base64Url.encode(utf8.encode(jsonEncode(json))).replaceAll('=', '');
+  return '${parte({'alg': 'HS256'})}.${parte({'sub': '$id', 'email': email, 'papel': papel.wire, 'exp': 4102444800})}.sig';
+}
+
+UsuarioLogado _usuario(Papel papel) {
+  final id = papel == Papel.organizador ? 1 : 7;
+  final email = papel == Papel.organizador
+      ? 'org@acontece.com'
+      : 'maria@exemplo.com';
+  return UsuarioLogado(
+    token: _jwt(id, email, papel),
+    id: id,
+    papel: papel,
+    email: email,
+    expiraEm: DateTime.utc(2100),
+  );
+}
+
+/// Requisicoes que o app fez, para os testes conferirem rota, metodo e token.
+final _pedidos = <http.Request>[];
+
+/// Monta o app com um cliente que responde conforme [rotas]. Com [logado], a
+/// sessao ja comeca salva no storage, como depois de recarregar a pagina.
+Widget _appCom(
+  Map<String, http.Response> Function(http.Request) responder, {
+  Papel? logado,
+}) {
+  _pedidos.clear();
   final mock = MockClient((request) async {
+    _pedidos.add(request);
     final respostas = responder(request);
     for (final entry in respostas.entries) {
       if (request.url.path.endsWith(entry.key)) return entry.value;
     }
-    return http.Response('{"status":404,"message":"rota nao mapeada no teste",'
-        '"path":"${request.url.path}","fieldErrors":[]}', 404);
+    return http.Response(
+      '{"status":404,"message":"rota nao mapeada no teste",'
+      '"path":"${request.url.path}","fieldErrors":[]}',
+      404,
+    );
   });
 
-  return Services(client: ApiClient(client: mock), child: const AconteceApp());
+  final storage = MemoryTokenStorage(
+    logado == null ? null : jsonEncode(_usuario(logado).toJson()),
+  );
+  return Services(
+    client: ApiClient(client: mock),
+    storage: storage,
+    child: const AconteceApp(),
+  );
 }
 
-http.Response _ok(String corpo) => http.Response.bytes(
-  utf8.encode(corpo),
-  200,
-  headers: {'content-type': 'application/json; charset=utf-8'},
-);
-
-http.Response _erro(String corpo, int status) => http.Response.bytes(
+http.Response _ok(String corpo, [int status = 200]) => http.Response.bytes(
   utf8.encode(corpo),
   status,
   headers: {'content-type': 'application/json; charset=utf-8'},
 );
+
+http.Response _erro(String corpo, int status) => _ok(corpo, status);
+
+/// Tela larga (barra lateral) por padrao; [largura] < 900 testa o celular.
+void _tela(WidgetTester tester, {double largura = 1400, double altura = 1400}) {
+  tester.view.physicalSize = Size(largura, altura);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+}
 
 void main() {
   setUpAll(() {
@@ -74,150 +120,396 @@ void main() {
     Intl.defaultLocale = 'pt_BR';
   });
 
-  testWidgets('lista os eventos vindos da API', (tester) async {
-    await tester.pumpWidget(
-      _appCom((_) => {'/evento/listar/': _ok(_eventosJson)}),
-    );
-    await tester.pumpAndSettle();
+  group('login', () {
+    testWidgets('sem sessao, o site abre na tela de entrada', (tester) async {
+      _tela(tester);
+      await tester.pumpWidget(_appCom((_) => {}));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Radar Tech'), findsOneWidget);
-    expect(find.text('Evento de RAP'), findsOneWidget);
+      expect(find.text('Bem-vindo de volta'), findsOneWidget);
+      expect(find.text('Entrar'), findsOneWidget);
+      expect(find.text('Criar conta'), findsOneWidget);
+      // Nenhuma rota protegida foi chamada sem token.
+      expect(_pedidos, isEmpty);
+    });
 
-    // Contador da lista.
-    expect(find.text('2 eventos'), findsOneWidget);
+    testWidgets('mostra a recusa da API quando a senha esta errada', (
+      tester,
+    ) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/auth/login': _erro(
+              '{"status":401,"error":"Unauthorized",'
+              '"message":"E-mail ou senha inválidos","path":"/auth/login",'
+              '"fieldErrors":[]}',
+              401,
+            ),
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    // Cidade formatada a partir do endereco que o ViaCEP preencheu.
-    expect(find.text('Francisco Beltrao - PR'), findsNWidgets(2));
+      await tester.enterText(find.byType(TextFormField).at(0), 'x@x.com');
+      await tester.enterText(find.byType(TextFormField).at(1), 'errada123');
+      await tester.tap(find.text('Entrar'));
+      await tester.pumpAndSettle();
 
-    // Vagas no plural e no singular.
-    expect(find.text('200 vagas'), findsOneWidget);
-    expect(find.text('1 vaga'), findsOneWidget);
+      expect(find.text('E-mail ou senha inválidos'), findsOneWidget);
+      expect(find.text('Bem-vindo de volta'), findsOneWidget);
+    });
+
+    testWidgets('entra, guarda o token e o envia nas chamadas seguintes', (
+      tester,
+    ) async {
+      _tela(tester);
+      final token = _jwt(7, 'maria@exemplo.com', Papel.participante);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/auth/login': _ok(
+              '{"token":"$token","tipo":"Bearer","expiraEmSegundos":7200,'
+              '"usuarioId":7,"papel":"PARTICIPANTE"}',
+            ),
+            '/evento/listar/': _ok(_eventosJson),
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byType(TextFormField).at(0),
+        'Maria@Exemplo.com',
+      );
+      await tester.enterText(find.byType(TextFormField).at(1), 'segredo123');
+      await tester.tap(find.text('Entrar'));
+      await tester.pumpAndSettle();
+
+      final login = _pedidos.firstWhere((p) => p.url.path == '/auth/login');
+      expect(jsonDecode(login.body), {
+        'email': 'maria@exemplo.com',
+        'senha': 'segredo123',
+      });
+      expect(login.headers.containsKey('Authorization'), isFalse);
+
+      final eventos = _pedidos.firstWhere(
+        (p) => p.url.path == '/evento/listar/',
+      );
+      expect(eventos.headers['Authorization'], 'Bearer $token');
+
+      expect(find.text('Descubra eventos'), findsOneWidget);
+      expect(find.text('maria@exemplo.com'), findsOneWidget);
+    });
+
+    testWidgets('token recusado (401) volta para a entrada com aviso', (
+      tester,
+    ) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {'/evento/listar/': http.Response('', 401)},
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bem-vindo de volta'), findsOneWidget);
+      expect(find.textContaining('Sua sessão expirou'), findsOneWidget);
+    });
+
+    testWidgets('sair volta para a tela de entrada', (tester) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {'/evento/listar/': _ok(_eventosJson)},
+          logado: Papel.organizador,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Sair'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bem-vindo de volta'), findsOneWidget);
+    });
+
+    testWidgets('criar conta valida o CPF antes de chamar a API', (
+      tester,
+    ) async {
+      _tela(tester);
+      await tester.pumpWidget(_appCom((_) => {}));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Criar conta'));
+      await tester.pumpAndSettle();
+
+      final campos = find.byType(TextFormField);
+      await tester.enterText(campos.at(0), 'Maria');
+      await tester.enterText(campos.at(1), 'maria@exemplo.com');
+      await tester.enterText(campos.at(2), '52998224726'); // digito errado
+      await tester.enterText(campos.at(4), 'segredo123');
+      await tester.enterText(campos.at(5), 'segredo123');
+      await tester.tap(find.text('Criar conta e entrar'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('CPF inválido'), findsOneWidget);
+      expect(_pedidos, isEmpty);
+    });
+
+    testWidgets('criar conta cadastra com senha e ja entra', (tester) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/participantes': _ok(
+              '{"id":7,"nome":"Maria","email":"maria@exemplo.com",'
+              '"cpf":"52998224725","telefone":null}',
+              201,
+            ),
+            '/auth/login': _ok(
+              '{"token":"${_jwt(7, 'maria@exemplo.com', Papel.participante)}",'
+              '"tipo":"Bearer","expiraEmSegundos":7200,"usuarioId":7,'
+              '"papel":"PARTICIPANTE"}',
+            ),
+            '/evento/listar/': _ok(_eventosJson),
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Criar conta'));
+      await tester.pumpAndSettle();
+
+      final campos = find.byType(TextFormField);
+      await tester.enterText(campos.at(0), 'Maria');
+      await tester.enterText(campos.at(1), 'maria@exemplo.com');
+      await tester.enterText(campos.at(2), '529.982.247-25');
+      await tester.enterText(campos.at(4), 'segredo123');
+      await tester.enterText(campos.at(5), 'segredo123');
+      await tester.tap(find.text('Criar conta e entrar'));
+      await tester.pumpAndSettle();
+
+      final cadastro = _pedidos.firstWhere(
+        (p) => p.url.path == '/participantes',
+      );
+      expect(jsonDecode(cadastro.body), {
+        'nome': 'Maria',
+        'email': 'maria@exemplo.com',
+        'cpf': '52998224725',
+        'telefone': null,
+        'senha': 'segredo123',
+      });
+      expect(find.text('Descubra eventos'), findsOneWidget);
+    });
   });
 
-  testWidgets('marca como encerrado o evento cuja dataFim ja passou', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _appCom((_) => {'/evento/listar/': _ok(_eventosJson)}),
-    );
-    await tester.pumpAndSettle();
+  group('eventos', () {
+    testWidgets('lista os eventos vindos da API', (tester) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {'/evento/listar/': _ok(_eventosJson)},
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    // "Evento de RAP" terminou em 13/11/2026; "Radar Tech" termina em
-    // 08/12/2026. Hoje, para o back-end, e o relogio de Sao Paulo.
-    expect(find.text('Encerrado'), findsOneWidget);
+      expect(find.text('Radar Tech'), findsOneWidget);
+      expect(find.text('Evento de RAP'), findsOneWidget);
+      expect(find.text('2 eventos'), findsOneWidget);
+      expect(find.text('Francisco Beltrao - PR'), findsNWidgets(2));
+      expect(find.text('200 vagas'), findsOneWidget);
+      expect(find.text('1 vaga'), findsOneWidget);
+
+      // "Evento de RAP" terminou em 13/11/2026; hoje, para o back-end, e o
+      // relogio de Sao Paulo.
+      expect(find.text('Encerrado'), findsOneWidget);
+    });
+
+    testWidgets('participante nao ve as acoes de organizador', (tester) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {'/evento/listar/': _ok(_eventosJson)},
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Novo evento'), findsNothing);
+      expect(find.text('Participantes'), findsNothing);
+      expect(find.text('Minhas inscrições'), findsOneWidget);
+      expect(find.text('Meu perfil'), findsOneWidget);
+    });
+
+    testWidgets('organizador ve criar evento e a aba de participantes', (
+      tester,
+    ) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {'/evento/listar/': _ok(_eventosJson)},
+          logado: Papel.organizador,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Novo evento'), findsOneWidget);
+      expect(find.text('Participantes'), findsOneWidget);
+      expect(find.text('Inscrições'), findsOneWidget);
+    });
+
+    testWidgets('mostra o estado vazio quando a API nao tem eventos', (
+      tester,
+    ) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {'/evento/listar/': _ok('[]')},
+          logado: Papel.organizador,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Nenhum evento cadastrado'), findsOneWidget);
+    });
+
+    testWidgets('mostra o erro da API e permite tentar de novo', (
+      tester,
+    ) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/evento/listar/': _erro(
+              '{"status":500,"error":"Internal Server Error",'
+              '"message":"Erro interno do servidor","path":"/evento/listar/",'
+              '"fieldErrors":[]}',
+              500,
+            ),
+          },
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Erro no servidor'), findsOneWidget);
+      expect(find.text('Erro interno do servidor'), findsOneWidget);
+      expect(find.text('Tentar de novo'), findsOneWidget);
+    });
+
+    testWidgets('participante se inscreve pelo detalhe do evento', (
+      tester,
+    ) async {
+      _tela(tester);
+      var inscrito = false;
+      const minha =
+          '{"content":[{"id":10,"participanteId":7,'
+          '"participanteNome":"Maria","eventoId":1,"eventoTitulo":"Radar Tech",'
+          '"status":"PENDENTE","dataInscricao":"2026-11-15T10:00:00"}],'
+          '"page":{"size":50,"number":0,"totalElements":1,"totalPages":1}}';
+
+      await tester.pumpWidget(
+        _appCom((request) {
+          if (request.method == 'POST' && request.url.path == '/inscricoes') {
+            inscrito = true;
+          }
+          return {
+            '/evento/listar/': _ok(_eventosJson),
+            '/evento/buscar/1': _ok(_radarTech),
+            '/inscricoes': request.method == 'POST'
+                ? _ok(_minhaInscricao, 201)
+                : inscrito
+                ? _ok(minha)
+                : _ok(_paginaVazia),
+          };
+        }, logado: Papel.participante),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Radar Tech'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Avenida Julio Assis Cavalheiro, 02'), findsOneWidget);
+      expect(find.text('Editar'), findsNothing);
+      expect(find.text('Excluir'), findsNothing);
+
+      await tester.tap(find.text('Quero me inscrever'));
+      await tester.pumpAndSettle();
+
+      final post = _pedidos.firstWhere((p) => p.method == 'POST');
+      // So o evento vai no corpo: o participante vem do token.
+      expect(jsonDecode(post.body), {'eventoId': 1});
+
+      expect(find.text('Você está inscrito'), findsOneWidget);
+      expect(find.text('Pendente'), findsOneWidget);
+    });
+
+    testWidgets('mostra a recusa da API ao se inscrever em evento lotado', (
+      tester,
+    ) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (request) => {
+            '/evento/listar/': _ok(_eventosJson),
+            '/evento/buscar/1': _ok(_radarTech),
+            '/inscricoes': request.method == 'POST'
+                ? _erro(
+                    '{"status":409,"error":"Conflict",'
+                    '"message":"Evento sem vagas disponíveis",'
+                    '"path":"/inscricoes","fieldErrors":[]}',
+                    409,
+                  )
+                : _ok(_paginaVazia),
+          },
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Radar Tech'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Quero me inscrever'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Evento sem vagas disponíveis'), findsOneWidget);
+    });
+
+    testWidgets('organizador ve ocupacao e acoes no detalhe', (tester) async {
+      _tela(tester);
+      const contagem =
+          '{"content":[],"page":{"size":1,"number":0,"totalElements":3,'
+          '"totalPages":3}}';
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/evento/listar/': _ok(_eventosJson),
+            '/evento/buscar/1': _ok(_radarTech),
+            '/inscricoes': _ok(contagem),
+          },
+          logado: Papel.organizador,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Radar Tech'));
+      await tester.pumpAndSettle();
+
+      // 3 pendentes + 3 confirmadas: a contagem soma os status que ocupam vaga.
+      expect(find.text('6'), findsOneWidget);
+      expect(find.text('de 200 vagas'), findsOneWidget);
+      expect(find.text('Ver inscrições'), findsOneWidget);
+      expect(find.text('Editar'), findsOneWidget);
+      expect(find.text('Excluir'), findsOneWidget);
+      expect(find.text('Quero me inscrever'), findsNothing);
+    });
   });
 
-  testWidgets('mostra o estado vazio quando a API nao tem eventos', (
-    tester,
-  ) async {
-    await tester.pumpWidget(_appCom((_) => {'/evento/listar/': _ok('[]')}));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Nenhum evento cadastrado'), findsOneWidget);
-    expect(find.text('Novo evento'), findsWidgets);
-  });
-
-  testWidgets('mostra o erro da API, com a mensagem dela, e permite tentar de novo', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _appCom(
-        (_) => {
-          '/evento/listar/': _erro(
-            '{"status":500,"error":"Internal Server Error",'
-            '"message":"Erro interno do servidor","path":"/evento/listar/",'
-            '"fieldErrors":[]}',
-            500,
-          ),
-        },
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Erro no servidor'), findsOneWidget);
-    expect(find.text('Erro interno do servidor'), findsOneWidget);
-    expect(find.text('Tentar de novo'), findsOneWidget);
-  });
-
-  testWidgets('explica o que fazer quando o pedido cai no servidor de arquivos', (
-    tester,
-  ) async {
-    // Reproduz abrir o site na porta do `flutter run` em vez da do proxy: a
-    // rota /api e atendida pelo servidor de SPA, que devolve index.html com
-    // status 200.
-    await tester.pumpWidget(
-      _appCom(
-        (_) => {
-          '/evento/listar/': _ok(
-            '<!DOCTYPE html>\n<html>\n<head><title>Acontece</title></head>\n'
-            '<body><script src="flutter_bootstrap.js"></script></body>\n</html>',
-          ),
-        },
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('A requisicao nao chegou a API'), findsOneWidget);
-    expect(find.textContaining('http://localhost:8081'), findsOneWidget);
-    expect(find.textContaining('dev_proxy.mjs'), findsOneWidget);
-
-    // E nao a mensagem antiga, que nao dizia o que fazer.
-    expect(find.text('Resposta inesperada'), findsNothing);
-  });
-
-  testWidgets('abre o detalhe do evento com endereco e acoes', (tester) async {
-    await tester.pumpWidget(
-      _appCom(
-        (_) => {
-          '/evento/listar/': _ok(_eventosJson),
-          '/evento/buscar/1': _ok(jsonEncode(jsonDecode(_eventosJson)[0])),
-          // O detalhe tenta contar as vagas ocupadas; aqui o modulo nao existe,
-          // e a tela precisa seguir funcionando sem essa informacao.
-          '/inscricoes': _erro(_inscricoesAusente, 404),
-        },
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Radar Tech'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Detalhe do evento'), findsOneWidget);
-    expect(find.text('Avenida Julio Assis Cavalheiro, 02'), findsOneWidget);
-    expect(find.text('Centro'), findsOneWidget);
-    expect(find.text('85601-000'), findsOneWidget);
-    expect(find.text('Inscrever participante'), findsOneWidget);
-    expect(find.text('Editar'), findsOneWidget);
-    expect(find.text('Excluir'), findsOneWidget);
-  });
-
-  testWidgets('avisa que o modulo de inscricoes nao esta publicado', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _appCom(
-        (_) => {
-          '/evento/listar/': _ok(_eventosJson),
-          '/inscricoes': _erro(_inscricoesAusente, 404),
-        },
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Inscricoes'));
-    await tester.pumpAndSettle();
-
-    // Em vez de "nao encontrado", que sugeriria falta de dados, a aba explica
-    // que a rota nao existe nesta build da API.
-    expect(find.text('Modulo de inscricoes nao publicado'), findsOneWidget);
-    expect(find.textContaining('Republique o acontece-api'), findsOneWidget);
-  });
-
-  testWidgets('lista as inscricoes quando o modulo existe', (tester) async {
+  group('inscricoes', () {
     const inscricoes = '''
     {"content":[
       {"id":10,"participanteId":1,"participanteNome":"Maria Silva",
-       "eventoId":1,"eventoTitulo":"Radar Tech","status":"PENDENTE",
+       "eventoId":1,"eventoTitulo":"Radar Tech","status":"CONFIRMADA",
        "dataInscricao":"2026-11-13T10:00:00"},
       {"id":11,"participanteId":2,"participanteNome":"Joao Souza",
        "eventoId":1,"eventoTitulo":"Radar Tech","status":"CANCELADA",
@@ -225,124 +517,130 @@ void main() {
      "page":{"size":20,"number":0,"totalElements":2,"totalPages":1}}
     ''';
 
-    await tester.pumpWidget(
-      _appCom(
-        (_) => {
-          '/evento/listar/': _ok(_eventosJson),
-          '/inscricoes': _ok(inscricoes),
-        },
-      ),
-    );
-    await tester.pumpAndSettle();
+    testWidgets('organizador lista e so ve transicoes validas', (tester) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/evento/listar/': _ok(_eventosJson),
+            '/inscricoes': _ok(inscricoes),
+          },
+          logado: Papel.organizador,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Inscricoes'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Inscrições'));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Maria Silva'), findsOneWidget);
-    expect(find.text('Joao Souza'), findsOneWidget);
-    expect(find.text('Pendente'), findsWidgets);
-    expect(find.text('Cancelada'), findsWidgets);
-    expect(find.text('1-2 de 2'), findsOneWidget);
+      expect(find.text('Maria Silva'), findsOneWidget);
+      expect(find.text('Joao Souza'), findsOneWidget);
+      expect(find.text('1-2 de 2'), findsOneWidget);
+
+      // CANCELADA e terminal: so a CONFIRMADA tem menu.
+      expect(find.byIcon(Icons.more_vert), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+
+      // CONFIRMADA so pode ir para CANCELADA.
+      expect(find.text('Cancelar'), findsOneWidget);
+      expect(find.text('Confirmar'), findsNothing);
+    });
+
+    testWidgets('participante ve as proprias inscricoes, sem mudar status', (
+      tester,
+    ) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/evento/listar/': _ok(_eventosJson),
+            '/inscricoes': _ok(inscricoes),
+          },
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Minhas inscrições'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Radar Tech'), findsWidgets);
+      expect(find.text('Confirmada'), findsWidgets);
+      expect(find.byIcon(Icons.more_vert), findsNothing);
+      // Nem o filtro por participante, que a API ignora para ele.
+      expect(find.byTooltip('Filtrar por participante'), findsNothing);
+    });
   });
 
-  testWidgets('oferece so as transicoes de status que a API aceita', (
+  group('participantes', () {
+    testWidgets('organizador lista participantes paginados', (tester) async {
+      _tela(tester);
+      const participantes = '''
+      {"content":[
+        {"id":1,"nome":"Maria Silva","email":"maria@exemplo.com",
+         "cpf":"52998224725","telefone":"46999887766"}],
+       "page":{"size":20,"number":0,"totalElements":1,"totalPages":1}}
+      ''';
+
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/evento/listar/': _ok(_eventosJson),
+            '/participantes': _ok(participantes),
+          },
+          logado: Papel.organizador,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Participantes'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Maria Silva'), findsOneWidget);
+      expect(find.text('maria@exemplo.com'), findsOneWidget);
+      expect(find.text('CPF 529.982.247-25 · (46) 99988-7766'), findsOneWidget);
+    });
+
+    testWidgets('participante ve o proprio perfil', (tester) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/evento/listar/': _ok(_eventosJson),
+            '/participantes/7': _ok(
+              '{"id":7,"nome":"Maria Silva","email":"maria@exemplo.com",'
+              '"cpf":"52998224725","telefone":null}',
+            ),
+          },
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Meu perfil'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Maria Silva'), findsOneWidget);
+      expect(find.text('529.982.247-25'), findsOneWidget);
+      expect(find.text('Não informado'), findsOneWidget);
+      expect(find.text('Excluir minha conta'), findsOneWidget);
+    });
+  });
+
+  testWidgets('em tela estreita a navegacao vai para a barra inferior', (
     tester,
   ) async {
-    const inscricoes = '''
-    {"content":[
-      {"id":10,"participanteId":1,"participanteNome":"Maria Silva",
-       "eventoId":1,"eventoTitulo":"Radar Tech","status":"CONFIRMADA",
-       "dataInscricao":"2026-11-13T10:00:00"}],
-     "page":{"size":20,"number":0,"totalElements":1,"totalPages":1}}
-    ''';
-
+    _tela(tester, largura: 420, altura: 900);
     await tester.pumpWidget(
       _appCom(
-        (_) => {
-          '/evento/listar/': _ok(_eventosJson),
-          '/inscricoes': _ok(inscricoes),
-        },
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Inscricoes'));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-
-    // CONFIRMADA so pode ir para CANCELADA. Oferecer "Confirmar" de novo
-    // resultaria em 409 ("Transicao de status invalida").
-    expect(find.text('Cancelar'), findsOneWidget);
-    expect(find.text('Confirmar'), findsNothing);
-  });
-
-  testWidgets('lista participantes paginados', (tester) async {
-    const participantes = '''
-    {"content":[
-      {"id":1,"nome":"Maria Silva","email":"maria@exemplo.com",
-       "cpf":"52998224725","telefone":"46999887766"}],
-     "page":{"size":20,"number":0,"totalElements":1,"totalPages":1}}
-    ''';
-
-    await tester.pumpWidget(
-      _appCom(
-        (_) => {
-          '/evento/listar/': _ok(_eventosJson),
-          '/participantes': _ok(participantes),
-        },
+        (_) => {'/evento/listar/': _ok(_eventosJson)},
+        logado: Papel.participante,
       ),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Participantes'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Maria Silva'), findsOneWidget);
-    expect(find.text('maria@exemplo.com'), findsOneWidget);
-
-    // CPF e telefone chegam crus da API e sao mascarados so na exibicao.
-    expect(
-      find.text('CPF 529.982.247-25 · (46) 99988-7766'),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('valida o formulario de participante antes de chamar a API', (
-    tester,
-  ) async {
-    var chamouCriar = false;
-
-    await tester.pumpWidget(
-      _appCom((request) {
-        if (request.method == 'POST') chamouCriar = true;
-        return {
-          '/evento/listar/': _ok(_eventosJson),
-          '/participantes': _ok(
-            '{"content":[],"page":{"size":20,"number":0,'
-            '"totalElements":0,"totalPages":0}}',
-          ),
-        };
-      }),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Participantes'));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Novo participante').first);
-    await tester.pumpAndSettle();
-
-    // CPF com digito verificador errado: o cliente barra antes de ir a rede.
-    await tester.enterText(find.byType(TextFormField).at(0), 'Maria');
-    await tester.enterText(
-      find.byType(TextFormField).at(1),
-      'maria@exemplo.com',
-    );
-    await tester.enterText(find.byType(TextFormField).at(2), '52998224726');
-    await tester.tap(find.text('Cadastrar'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('CPF invalido'), findsOneWidget);
-    expect(chamouCriar, isFalse);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byTooltip('Conta'), findsOneWidget);
   });
 }

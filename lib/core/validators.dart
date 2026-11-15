@@ -17,16 +17,15 @@ class Validators {
   );
 
   /// Mantem apenas digitos. O back-end normaliza CPF assim antes de gravar.
-  static String digits(String value) =>
-      value.replaceAll(RegExp(r'[^0-9]'), '');
+  static String digits(String value) => value.replaceAll(RegExp(r'[^0-9]'), '');
 
   // --- Evento (EventoRequestDTO) ---
 
   /// `@NotBlank` + `@Size(max = 100)`.
   static String? tituloEvento(String? value) {
     final text = (value ?? '').trim();
-    if (text.isEmpty) return 'O titulo do evento e obrigatorio';
-    if (text.length > 100) return 'No maximo 100 caracteres';
+    if (text.isEmpty) return 'O título do evento é obrigatório';
+    if (text.length > 100) return 'No máximo 100 caracteres';
     return null;
   }
 
@@ -35,7 +34,7 @@ class Validators {
     final text = (value ?? '').trim();
     if (text.isEmpty) return 'Informe a quantidade de vagas';
     final parsed = int.tryParse(text);
-    if (parsed == null) return 'Use apenas numeros inteiros';
+    if (parsed == null) return 'Use apenas números inteiros';
     if (parsed <= 0) return 'Vagas deve ser maior que zero';
     return null;
   }
@@ -46,17 +45,17 @@ class Validators {
   /// chamado pelo back-end, que devolve 400 quando o CEP nao existe.
   static String? cep(String? value) {
     final text = (value ?? '').trim();
-    if (text.isEmpty) return 'O CEP e obrigatorio';
-    if (!_cep.hasMatch(text)) return 'CEP deve ter 8 digitos';
+    if (text.isEmpty) return 'O CEP é obrigatório';
+    if (!_cep.hasMatch(text)) return 'CEP deve ter 8 dígitos';
     return null;
   }
 
   /// Espelha `EventoService.validarDatas`: fim **estritamente** depois do inicio.
   static String? periodoEvento(DateTime? inicio, DateTime? fim) {
-    if (inicio == null) return 'A data de inicio e obrigatoria';
-    if (fim == null) return 'A data de fim e obrigatoria';
+    if (inicio == null) return 'A data de início é obrigatória';
+    if (fim == null) return 'A data de fim é obrigatória';
     if (!fim.isAfter(inicio)) {
-      return 'A data de fim deve ser posterior a data de inicio';
+      return 'A data de fim deve ser posterior à data de início';
     }
     return null;
   }
@@ -66,8 +65,10 @@ class Validators {
     final text = (value ?? '').trim();
     if (text.isEmpty) return null;
     final uri = Uri.tryParse(text);
-    if (uri == null || !uri.hasScheme || !uri.isScheme('http') && !uri.isScheme('https')) {
-      return 'Informe uma URL comecando com http:// ou https://';
+    if (uri == null ||
+        !uri.hasScheme ||
+        !uri.isScheme('http') && !uri.isScheme('https')) {
+      return 'Informe uma URL começando com http:// ou https://';
     }
     return null;
   }
@@ -77,16 +78,16 @@ class Validators {
   /// `@NotBlank` + `@Size(max = 120)`.
   static String? nome(String? value) {
     final text = (value ?? '').trim();
-    if (text.isEmpty) return 'O nome e obrigatorio';
-    if (text.length > 120) return 'No maximo 120 caracteres';
+    if (text.isEmpty) return 'O nome é obrigatório';
+    if (text.length > 120) return 'No máximo 120 caracteres';
     return null;
   }
 
   /// `@NotBlank` + `@Email`.
   static String? email(String? value) {
     final text = (value ?? '').trim();
-    if (text.isEmpty) return 'O e-mail e obrigatorio';
-    if (!_email.hasMatch(text)) return 'E-mail invalido';
+    if (text.isEmpty) return 'O e-mail é obrigatório';
+    if (!_email.hasMatch(text)) return 'E-mail inválido';
     return null;
   }
 
@@ -95,7 +96,7 @@ class Validators {
     final text = digits(value ?? '');
     if (text.isEmpty) return null;
     if (!_telefone.hasMatch(text)) {
-      return 'O telefone deve ter 10 ou 11 digitos';
+      return 'O telefone deve ter 10 ou 11 dígitos';
     }
     return null;
   }
@@ -105,10 +106,25 @@ class Validators {
   /// como no back-end.
   static String? cpf(String? value) {
     final text = digits(value ?? '');
-    if (text.isEmpty) return 'O CPF e obrigatorio';
-    if (!isCpfValid(text)) return 'CPF invalido';
+    if (text.isEmpty) return 'O CPF é obrigatório';
+    if (!isCpfValid(text)) return 'CPF inválido';
     return null;
   }
+
+  /// `@NotBlank` + `@Size(min = 8, max = 72)` do `ParticipanteRequest`. O teto
+  /// existe porque o BCrypt so le os primeiros 72 bytes.
+  static String? senha(String? value) {
+    final text = value ?? '';
+    if (text.trim().isEmpty) return 'A senha é obrigatória';
+    if (text.length < 8 || text.length > 72) {
+      return 'A senha deve ter entre 8 e 72 caracteres';
+    }
+    return null;
+  }
+
+  /// Senha do login: o back-end so exige `@NotBlank` ali.
+  static String? senhaLogin(String? value) =>
+      (value ?? '').isEmpty ? 'Informe a senha' : null;
 
   /// Confere os dois digitos verificadores do CPF.
   static bool isCpfValid(String raw) {

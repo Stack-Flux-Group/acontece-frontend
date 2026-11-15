@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:acontece_frontend/core/api_client.dart';
 import 'package:acontece_frontend/core/api_dates.dart';
 import 'package:acontece_frontend/core/api_exception.dart';
+import 'package:acontece_frontend/models/auth.dart';
 import 'package:acontece_frontend/models/evento.dart';
 import 'package:acontece_frontend/models/inscricao.dart';
 import 'package:acontece_frontend/models/paged_model.dart';
@@ -34,10 +37,13 @@ void main() {
       expect(ApiDates.format(ApiDates.parse(texto)), texto);
     });
 
-    test('serializa sem fuso e sem milissegundos, como o LocalDateTime espera', () {
-      final valor = DateTime(2026, 12, 1, 19, 30, 5, 123);
-      expect(ApiDates.format(valor), '2026-12-01T19:30:05');
-    });
+    test(
+      'serializa sem fuso e sem milissegundos, como o LocalDateTime espera',
+      () {
+        final valor = DateTime(2026, 12, 1, 19, 30, 5, 123);
+        expect(ApiDates.format(valor), '2026-12-01T19:30:05');
+      },
+    );
 
     test('tryParse devolve null para ausente ou invalido', () {
       expect(ApiDates.tryParse(null), isNull);
@@ -79,32 +85,43 @@ void main() {
       expect(erro.isNotFound, isTrue);
       expect(erro.message, 'Evento com id 9999 não encontrado');
       expect(erro.fieldErrors, isEmpty);
-
-      // Registro ausente nao e rota ausente.
-      expect(erro.isMissingEndpoint, isFalse);
     });
 
-    test('distingue rota ausente de registro ausente', () {
-      // Corpo real de GET /inscricoes no deploy atual, que nao tem o modulo.
+    test('le o 401 do login com a mensagem da API', () {
+      // Corpo real de POST /auth/login com senha errada.
       const corpo =
-          '{"timestamp":"2026-11-15T00:18:25.838503940Z","status":404,'
-          '"error":"Not Found","message":"No static resource inscricoes.",'
-          '"path":"/inscricoes","fieldErrors":[]}';
+          '{"timestamp":"2026-11-15T18:54:25.154969772Z","status":401,'
+          '"error":"Unauthorized","message":"E-mail ou senha inválidos",'
+          '"path":"/auth/login","fieldErrors":[]}';
 
-      final erro = ApiException.fromResponse(404, corpo, '/inscricoes');
-      expect(erro.isMissingEndpoint, isTrue);
+      final erro = ApiException.fromResponse(401, corpo, '/auth/login');
+      expect(erro.isUnauthorized, isTrue);
+      expect(erro.message, 'E-mail ou senha inválidos');
     });
 
-    test('reconhece HTML no lugar de JSON como pedido que nao chegou a API', () {
-      // Caso real: o app aberto na porta do `flutter run` em vez da do proxy.
-      // O servidor de SPA responde index.html com status 200, nao 404.
-      final erro = ApiException.misrouted('/evento/listar/');
-      expect(erro.kind, ApiErrorKind.misrouted);
+    test('da mensagem propria ao 401 e ao 403 sem corpo', () {
+      // O filtro de seguranca do Spring responde 401/403 com corpo vazio
+      // quando o token falta, venceu ou o papel nao permite a rota.
+      final semToken = ApiException.fromResponse(401, '', '/evento/listar/');
+      expect(semToken.message, contains('sessão expirou'));
 
-      // A mensagem precisa dizer o que fazer, nao so que algo deu errado.
-      expect(erro.message, contains('8081'));
-      expect(erro.message, contains('dev_proxy'));
+      final semPapel = ApiException.fromResponse(403, '', '/participantes');
+      expect(semPapel.isForbidden, isTrue);
+      expect(semPapel.message, 'Você não tem permissão para esta operação.');
     });
+
+    test(
+      'reconhece HTML no lugar de JSON como pedido que nao chegou a API',
+      () {
+        // Base relativa sem proxy: o servidor de SPA responde index.html com
+        // status 200, nao 404.
+        final erro = ApiException.misrouted('/evento/listar/');
+        expect(erro.kind, ApiErrorKind.misrouted);
+
+        // A mensagem precisa dizer o que fazer, nao so que algo deu errado.
+        expect(erro.message, contains('API_BASE_URL'));
+      },
+    );
 
     test('cai para mensagem generica quando o corpo nao e o envelope', () {
       // Pode acontecer com um erro do proxy ou do host (HTML, texto puro).
@@ -136,12 +153,18 @@ void main() {
 
     test('preserva a barra final obrigatoria de /evento/listar/', () {
       // Sem a barra no fim a rota nao casa no Spring.
-      expect(ApiClient.resolve('/evento/listar/').path, endsWith('/evento/listar/'));
+      expect(
+        ApiClient.resolve('/evento/listar/').path,
+        endsWith('/evento/listar/'),
+      );
     });
 
     test('nao cria query quando nao ha parametros', () {
       expect(ApiClient.resolve('/evento/listar/').hasQuery, isFalse);
-      expect(ApiClient.resolve('/evento/listar/', {'x': null}).hasQuery, isFalse);
+      expect(
+        ApiClient.resolve('/evento/listar/', {'x': null}).hasQuery,
+        isFalse,
+      );
     });
   });
 
@@ -169,7 +192,10 @@ void main() {
       expect(evento.vagas, 200);
       expect(evento.fotoUrl, isNull);
       expect(evento.endereco.cidadeUf, 'Francisco Beltrao - PR');
-      expect(evento.endereco.linha, contains('Avenida Julio Assis Cavalheiro, 02'));
+      expect(
+        evento.endereco.linha,
+        contains('Avenida Julio Assis Cavalheiro, 02'),
+      );
     });
 
     test('EventoInput.fromEvento preserva fotoUrl e numero no PUT', () {
@@ -222,11 +248,14 @@ void main() {
         email: '  MARIA@Exemplo.COM  ',
         cpf: '529.982.247-25',
         telefone: '(46) 99988-7766',
+        senha: 'segredo123',
       ).toJson();
       expect(json['nome'], 'Maria Silva');
       expect(json['email'], 'maria@exemplo.com');
       expect(json['cpf'], '52998224725');
       expect(json['telefone'], '46999887766');
+      // A senha vai como digitada: o back-end so guarda o hash.
+      expect(json['senha'], 'segredo123');
     });
 
     test('ParticipanteInput manda telefone null quando vazio', () {
@@ -235,6 +264,7 @@ void main() {
         email: 'a@b.com',
         cpf: '52998224725',
         telefone: '',
+        senha: 'segredo123',
       ).toJson();
       expect(json['telefone'], isNull);
     });
@@ -310,7 +340,10 @@ void main() {
   group('StatusInscricao', () {
     test('converte de e para o valor da API', () {
       expect(StatusInscricao.fromWire('PENDENTE'), StatusInscricao.pendente);
-      expect(StatusInscricao.fromWire('CONFIRMADA'), StatusInscricao.confirmada);
+      expect(
+        StatusInscricao.fromWire('CONFIRMADA'),
+        StatusInscricao.confirmada,
+      );
       expect(StatusInscricao.fromWire('CANCELADA'), StatusInscricao.cancelada);
       expect(StatusInscricao.confirmada.wire, 'CONFIRMADA');
       expect(
@@ -354,12 +387,7 @@ void main() {
             'telefone': null,
           },
         ],
-        'page': {
-          'size': 20,
-          'number': 0,
-          'totalElements': 1,
-          'totalPages': 1,
-        },
+        'page': {'size': 20, 'number': 0, 'totalElements': 1, 'totalPages': 1},
       }, Participante.fromJson);
 
       expect(pagina.content, hasLength(1));
@@ -373,12 +401,7 @@ void main() {
     test('le a pagina vazia que a API devolve hoje em /participantes', () {
       final pagina = PagedModel.fromJson(const {
         'content': <Map<String, dynamic>>[],
-        'page': {
-          'size': 20,
-          'number': 0,
-          'totalElements': 0,
-          'totalPages': 0,
-        },
+        'page': {'size': 20, 'number': 0, 'totalElements': 0, 'totalPages': 0},
       }, Participante.fromJson);
 
       expect(pagina.isEmpty, isTrue);
@@ -419,10 +442,85 @@ void main() {
       expect(inscricao.dataInscricao.hour, 10);
     });
 
-    test('InscricaoInput manda apenas os dois ids', () {
+    test('InscricaoInput manda so o evento: o participante vem do token', () {
+      expect(const InscricaoInput(eventoId: 2).toJson(), {'eventoId': 2});
+    });
+  });
+
+  group('auth', () {
+    // JWT real no formato que o TokenService gera (HS256), com sub, exp,
+    // email e papel. A assinatura nao importa: o cliente nao confere.
+    String jwt(Map<String, dynamic> claims) {
+      String parte(Object json) =>
+          base64Url.encode(utf8.encode(jsonEncode(json))).replaceAll('=', '');
+      return '${parte({'alg': 'HS256'})}.${parte(claims)}.assinatura';
+    }
+
+    test('TokenResponse le a resposta de POST /auth/login', () {
+      final token = TokenResponse.fromJson(const {
+        'token': 'a.b.c',
+        'tipo': 'Bearer',
+        'expiraEmSegundos': 7200,
+        'usuarioId': 3,
+        'papel': 'ORGANIZADOR',
+      });
+      expect(token.usuarioId, 3);
+      expect(token.papel, Papel.organizador);
+      expect(token.expiraEmSegundos, 7200);
+    });
+
+    test('UsuarioLogado tira e-mail e validade do proprio JWT', () {
+      final usuario = UsuarioLogado.fromToken(
+        TokenResponse(
+          token: jwt({
+            'sub': '7',
+            'email': 'maria@exemplo.com',
+            'papel': 'PARTICIPANTE',
+            'exp': 1800000000,
+          }),
+          expiraEmSegundos: 7200,
+          usuarioId: 7,
+          papel: Papel.participante,
+        ),
+      );
+      expect(usuario.email, 'maria@exemplo.com');
+      expect(usuario.ehParticipante, isTrue);
+      expect(usuario.expiraEm.millisecondsSinceEpoch, 1800000000 * 1000);
+    });
+
+    test('considera vencido o token no fim da validade', () {
+      final agora = DateTime.utc(2026, 11, 15, 12);
+      final usuario = UsuarioLogado(
+        token: 'x',
+        id: 1,
+        papel: Papel.participante,
+        email: 'a@b.com',
+        expiraEm: agora.add(const Duration(minutes: 1)),
+      );
+      expect(usuario.expiradoEm(agora), isFalse);
+      expect(usuario.expiradoEm(agora.add(const Duration(minutes: 1))), isTrue);
+    });
+
+    test('UsuarioLogado sobrevive a ida e volta pelo storage', () {
+      final original = UsuarioLogado(
+        token: 'x.y.z',
+        id: 9,
+        papel: Papel.organizador,
+        email: 'org@acontece.com',
+        expiraEm: DateTime.utc(2027),
+      );
+      final lido = UsuarioLogado.fromJson(
+        jsonDecode(jsonEncode(original.toJson())) as Map<String, dynamic>,
+      );
+      expect(lido.id, 9);
+      expect(lido.papel, Papel.organizador);
+      expect(lido.expiraEm, DateTime.utc(2027));
+    });
+
+    test('LoginInput normaliza o e-mail como o AuthService', () {
       expect(
-        const InscricaoInput(participanteId: 1, eventoId: 2).toJson(),
-        {'participanteId': 1, 'eventoId': 2},
+        const LoginInput(email: '  Org@Acontece.COM ', senha: ' s ').toJson(),
+        {'email': 'org@acontece.com', 'senha': ' s '},
       );
     });
   });

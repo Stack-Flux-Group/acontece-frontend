@@ -7,11 +7,9 @@ import '../repositories/evento_repository.dart';
 import '../repositories/participante_repository.dart';
 import 'async_view.dart';
 
-/// Escolhe um participante.
+/// Escolhe um participante (filtro do organizador na aba de inscricoes).
 ///
-/// Como a API nao tem autenticacao nem "usuario logado", toda inscricao precisa
-/// dizer explicitamente de quem ela e. Este seletor e o lugar onde isso
-/// acontece.
+/// Depende de `GET /participantes`, que so o organizador pode chamar.
 Future<Participante?> escolherParticipante(
   BuildContext context,
   ParticipanteRepository repository,
@@ -28,7 +26,9 @@ Future<Participante?> escolherParticipante(
         p.cpf.contains(termo.replaceAll(RegExp(r'[^0-9]'), '')),
     constroi: (p) => ListTile(
       leading: CircleAvatar(
-        child: Text(p.nome.isEmpty ? '?' : p.nome.substring(0, 1).toUpperCase()),
+        child: Text(
+          p.nome.isEmpty ? '?' : p.nome.substring(0, 1).toUpperCase(),
+        ),
       ),
       title: Text(p.nome),
       subtitle: Text('${p.email} · ${Fmt.cpf(p.cpf)}'),
@@ -36,11 +36,7 @@ Future<Participante?> escolherParticipante(
   ),
 );
 
-/// Escolhe um evento.
-///
-/// Eventos encerrados aparecem marcados, mas continuam selecionaveis: a recusa
-/// e do back-end ("O evento ja foi encerrado"), e esconder a opcao esconderia
-/// tambem o motivo.
+/// Escolhe um evento (filtro da aba de inscricoes).
 Future<Evento?> escolherEvento(
   BuildContext context,
   EventoRepository repository,
@@ -48,7 +44,7 @@ Future<Evento?> escolherEvento(
   context: context,
   builder: (_) => _PickerDialog<Evento>(
     titulo: 'Escolher evento',
-    dica: 'Buscar por titulo ou cidade',
+    dica: 'Buscar por título ou cidade',
     load: repository.listar,
     vazio: 'Nenhum evento cadastrado ainda.',
     combina: (e, termo) =>

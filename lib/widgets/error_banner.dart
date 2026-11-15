@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../core/api_exception.dart';
+import '../core/theme.dart';
 
 /// Mostra um [ApiException] como o back-end o descreveu.
 ///
@@ -10,7 +11,12 @@ import '../core/api_exception.dart';
 /// `fieldErrors` aparecem como lista, porque uma unica requisicao pode reprovar
 /// varios campos de uma vez.
 class ErrorBanner extends StatelessWidget {
-  const ErrorBanner({super.key, required this.error, this.onRetry, this.dense = false});
+  const ErrorBanner({
+    super.key,
+    required this.error,
+    this.onRetry,
+    this.dense = false,
+  });
 
   final ApiException error;
   final VoidCallback? onRetry;
@@ -51,9 +57,8 @@ class ErrorBanner extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       error.message,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: scheme.onErrorContainer,
-                      ),
+                      style: Theme.of(context).textTheme.bodyMedium
+                          ?.copyWith(color: scheme.onErrorContainer),
                     ),
                   ],
                 ),
@@ -67,9 +72,8 @@ class ErrorBanner extends StatelessWidget {
                 padding: const EdgeInsets.only(left: 32, top: 2),
                 child: Text(
                   '• ${campo.field}: ${campo.message}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onErrorContainer,
-                  ),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: scheme.onErrorContainer),
                 ),
               ),
           ],
@@ -85,7 +89,9 @@ class ErrorBanner extends StatelessWidget {
                   label: const Text('Tentar de novo'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: scheme.onErrorContainer,
-                    side: BorderSide(color: scheme.error.withValues(alpha: 0.5)),
+                    side: BorderSide(
+                      color: scheme.error.withValues(alpha: 0.5),
+                    ),
                   ),
                 ),
               ),
@@ -97,16 +103,18 @@ class ErrorBanner extends StatelessWidget {
   }
 
   String get _titulo => switch (error.kind) {
-    ApiErrorKind.network => 'Sem conexao com a API',
+    ApiErrorKind.network => 'Sem conexão com a API',
     ApiErrorKind.timeout => 'A API demorou demais',
     ApiErrorKind.payload => 'Resposta inesperada',
-    ApiErrorKind.misrouted => 'A requisicao nao chegou a API',
+    ApiErrorKind.misrouted => 'A requisição não chegou à API',
     ApiErrorKind.http => switch (error.status) {
-      400 => 'Dados invalidos',
-      404 => 'Nao encontrado',
-      409 => 'Operacao bloqueada',
+      400 => 'Dados inválidos',
+      401 => 'Acesso não autorizado',
+      403 => 'Sem permissão',
+      404 => 'Não encontrado',
+      409 => 'Operação bloqueada',
       _ when error.isServerError => 'Erro no servidor',
-      _ => 'Nao foi possivel concluir',
+      _ => 'Não foi possível concluir',
     },
   };
 
@@ -114,6 +122,8 @@ class ErrorBanner extends StatelessWidget {
     ApiErrorKind.network => Icons.wifi_off,
     ApiErrorKind.timeout => Icons.hourglass_disabled,
     ApiErrorKind.misrouted => Icons.alt_route,
+    ApiErrorKind.http when error.isUnauthorized => Icons.lock_outline,
+    ApiErrorKind.http when error.isForbidden => Icons.block,
     _ => Icons.error_outline,
   };
 }
@@ -138,7 +148,18 @@ void mostrarErro(BuildContext context, ApiException error) {
 
 /// Confirmacao de sucesso, curta.
 void mostrarSucesso(BuildContext context, String mensagem) {
-  ScaffoldMessenger.of(
-    context,
-  ).showSnackBar(SnackBar(content: Text(mensagem)));
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      backgroundColor: Paleta.petroleo,
+      content: Row(
+        children: [
+          const Icon(Icons.check_circle, color: Paleta.ciano, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(mensagem, style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    ),
+  );
 }

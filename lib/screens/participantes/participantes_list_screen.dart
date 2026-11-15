@@ -3,21 +3,27 @@ import 'package:material_ui/material_ui.dart';
 import '../../core/api_exception.dart';
 import '../../core/formatters.dart';
 import '../../core/theme.dart';
+import '../../models/auth.dart';
 import '../../models/paged_model.dart';
 import '../../models/participante.dart';
 import '../../services.dart';
 import '../../widgets/async_view.dart';
+import '../../widgets/cabecalho_pagina.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/pickers.dart';
+import '../home_shell.dart';
 import 'participante_form_screen.dart';
 
-/// Lista paginada de participantes.
+/// Lista paginada de participantes. So o organizador chega aqui:
+/// `GET /participantes` e exclusivo dele.
 ///
 /// `GET /participantes` e paginado de verdade (`PagedModel`), entao aqui a
 /// paginacao e do servidor — diferente da aba de eventos, cuja rota devolve a
 /// tabela inteira.
 class ParticipantesListScreen extends StatefulWidget {
-  const ParticipantesListScreen({super.key});
+  const ParticipantesListScreen({super.key, required this.usuario});
+
+  final UsuarioLogado usuario;
 
   @override
   State<ParticipantesListScreen> createState() =>
@@ -33,9 +39,9 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
 
   String get _chave => '$_pagina|$_ordem|$_versao';
 
-  Future<PagedModel<Participante>> _carregar() => Services.of(
-    context,
-  ).participantes.listar(page: _pagina, size: _tamanhoPagina, sort: _ordem);
+  Future<PagedModel<Participante>> _carregar() =>
+      Services.of(context).participantes
+          .listar(page: _pagina, size: _tamanhoPagina, sort: _ordem);
 
   void _recarregar() => setState(() => _versao++);
 
@@ -65,15 +71,15 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
       context,
       titulo: 'Excluir ${participante.nome}?',
       mensagem:
-          'A exclusao e definitiva. Se o participante tiver inscricoes, a API '
-          'vai recusar a operacao.',
+          'A exclusão é definitiva. Se o participante tiver inscrições, a API '
+          'vai recusar a operação.',
     );
     if (!confirmado || !mounted) return;
 
     try {
       await Services.of(context).participantes.excluir(participante.id);
       if (!mounted) return;
-      mostrarSucesso(context, 'Participante excluido.');
+      mostrarSucesso(context, 'Participante excluído.');
       _recarregar();
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -83,83 +89,93 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Participantes'),
-      actions: [
-        PopupMenuButton<String>(
-          tooltip: 'Ordenar',
-          icon: const Icon(Icons.sort),
-          initialValue: _ordem,
-          onSelected: (valor) => setState(() {
-            _ordem = valor;
-            _pagina = 0;
-          }),
-          itemBuilder: (_) => const [
-            PopupMenuItem(value: 'nome,asc', child: Text('Nome (A-Z)')),
-            PopupMenuItem(value: 'nome,desc', child: Text('Nome (Z-A)')),
-            PopupMenuItem(value: 'id,desc', child: Text('Mais recentes')),
-            PopupMenuItem(value: 'email,asc', child: Text('E-mail (A-Z)')),
+    body: Column(
+      children: [
+        CabecalhoPagina(
+          titulo: 'Participantes',
+          subtitulo: 'Pessoas cadastradas na plataforma.',
+          acoes: [
+            PopupMenuButton<String>(
+              tooltip: 'Ordenar',
+              icon: const Icon(Icons.sort),
+              style: IconButton.styleFrom(
+                backgroundColor: Colors.white.withValues(alpha: 0.1),
+                foregroundColor: Colors.white,
+              ),
+              initialValue: _ordem,
+              onSelected: (valor) => setState(() {
+                _ordem = valor;
+                _pagina = 0;
+              }),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'nome,asc', child: Text('Nome (A-Z)')),
+                PopupMenuItem(value: 'nome,desc', child: Text('Nome (Z-A)')),
+                PopupMenuItem(value: 'id,desc', child: Text('Mais recentes')),
+                PopupMenuItem(value: 'email,asc', child: Text('E-mail (A-Z)')),
+              ],
+            ),
+            ContaBotao(usuario: widget.usuario),
           ],
         ),
-        const SizedBox(width: 4),
-      ],
-    ),
-    body: AsyncView<PagedModel<Participante>>(
-      reloadKey: _chave,
-      load: _carregar,
-      isEmpty: (pagina) => pagina.isEmpty,
-      emptyTitle: 'Nenhum participante cadastrado',
-      emptyMessage:
-          'Cadastre participantes para poder inscreve-los nos eventos.',
-      emptyAction: FilledButton.icon(
-        onPressed: _criar,
-        icon: const Icon(Icons.add),
-        label: const Text('Novo participante'),
-      ),
-      builder: (context, pagina, recarregar) => ListView(
-        padding: const EdgeInsets.only(bottom: 96),
-        children: [
-          ContentWidth(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        Expanded(
+          child: AsyncView<PagedModel<Participante>>(
+            reloadKey: _chave,
+            load: _carregar,
+            isEmpty: (pagina) => pagina.isEmpty,
+            emptyTitle: 'Nenhum participante cadastrado',
+            emptyMessage: 'Os participantes podem criar a própria conta na tela de entrada.',
+            emptyAction: FilledButton.icon(
+              onPressed: _criar,
+              icon: const Icon(Icons.add),
+              label: const Text('Novo participante'),
+            ),
+            builder: (context, pagina, recarregar) => ListView(
+              padding: const EdgeInsets.only(bottom: 96),
               children: [
-                const SizedBox(height: 16),
-                Text(
-                  pagina.faixaDescrita,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Card(
+                ContentWidth(
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      for (var i = 0; i < pagina.content.length; i++) ...[
-                        if (i > 0) const Divider(height: 1),
-                        _ParticipanteLinha(
-                          participante: pagina.content[i],
-                          onEditar: () => _editar(pagina.content[i]),
-                          onExcluir: () => _excluir(pagina.content[i]),
+                      const SizedBox(height: 20),
+                      Text(
+                        pagina.faixaDescrita,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
-                      ],
+                      ),
+                      const SizedBox(height: 12),
+                      Card(
+                        child: Column(
+                          children: [
+                            for (var i = 0; i < pagina.content.length; i++) ...[
+                              if (i > 0) const Divider(height: 1),
+                              _ParticipanteLinha(
+                                participante: pagina.content[i],
+                                onEditar: () => _editar(pagina.content[i]),
+                                onExcluir: () => _excluir(pagina.content[i]),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _Paginacao(
+                        pagina: pagina,
+                        onAnterior: pagina.hasPrevious
+                            ? () => setState(() => _pagina--)
+                            : null,
+                        onProxima: pagina.hasNext
+                            ? () => setState(() => _pagina++)
+                            : null,
+                      ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-                _Paginacao(
-                  pagina: pagina,
-                  onAnterior: pagina.hasPrevious
-                      ? () => setState(() => _pagina--)
-                      : null,
-                  onProxima: pagina.hasNext
-                      ? () => setState(() => _pagina++)
-                      : null,
                 ),
               ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     ),
     floatingActionButton: FloatingActionButton.extended(
       heroTag: 'fab-participantes',
@@ -204,9 +220,8 @@ class _ParticipanteLinha extends StatelessWidget {
           Text(
             'CPF ${Fmt.cpf(participante.cpf)}'
             '${participante.telefone == null || participante.telefone!.isEmpty ? '' : ' · ${Fmt.telefone(participante.telefone)}'}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-            ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ],
       ),
@@ -247,18 +262,18 @@ class _Paginacao extends StatelessWidget {
       IconButton(
         onPressed: onAnterior,
         icon: const Icon(Icons.chevron_left),
-        tooltip: 'Pagina anterior',
+        tooltip: 'Página anterior',
       ),
       Text(
         pagina.totalPages == 0
-            ? 'Pagina 1 de 1'
-            : 'Pagina ${pagina.number + 1} de ${pagina.totalPages}',
+            ? 'Página 1 de 1'
+            : 'Página ${pagina.number + 1} de ${pagina.totalPages}',
         style: Theme.of(context).textTheme.bodySmall,
       ),
       IconButton(
         onPressed: onProxima,
         icon: const Icon(Icons.chevron_right),
-        tooltip: 'Proxima pagina',
+        tooltip: 'Próxima página',
       ),
     ],
   );

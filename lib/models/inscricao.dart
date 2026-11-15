@@ -37,15 +37,14 @@ class Inscricao {
 
 /// Corpo de `POST /inscricoes` (`InscricaoRequest`).
 ///
-/// O status inicial nao e enviado: o back-end sempre cria como `PENDENTE`.
+/// So o evento vai no corpo. O participante e sempre quem esta logado: o
+/// controller sobrescreve `participanteId` com o id do token, para ninguem se
+/// inscrever em nome de outro. O status inicial tambem nao e enviado: o
+/// back-end sempre cria como `PENDENTE`.
 class InscricaoInput {
-  const InscricaoInput({required this.participanteId, required this.eventoId});
+  const InscricaoInput({required this.eventoId});
 
-  final int participanteId;
   final int eventoId;
 
-  Map<String, dynamic> toJson() => <String, dynamic>{
-    'participanteId': participanteId,
-    'eventoId': eventoId,
-  };
+  Map<String, dynamic> toJson() => <String, dynamic>{'eventoId': eventoId};
 }

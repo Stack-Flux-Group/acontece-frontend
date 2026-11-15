@@ -14,11 +14,32 @@ class Fmt {
   static final DateFormat _hora = DateFormat('HH:mm');
   static final DateFormat _dataHora = DateFormat('dd/MM/yyyy HH:mm');
   static final DateFormat _diaMes = DateFormat("d 'de' MMMM", 'pt_BR');
-  static final DateFormat _diaMesAno = DateFormat("d 'de' MMMM 'de' y", 'pt_BR');
+  static final DateFormat _diaMesAno = DateFormat(
+    "d 'de' MMMM 'de' y",
+    'pt_BR',
+  );
 
   static String data(DateTime value) => _data.format(value);
   static String hora(DateTime value) => _hora.format(value);
   static String dataHora(DateTime value) => _dataHora.format(value);
+
+  static const _meses = [
+    'JAN',
+    'FEV',
+    'MAR',
+    'ABR',
+    'MAI',
+    'JUN',
+    'JUL',
+    'AGO',
+    'SET',
+    'OUT',
+    'NOV',
+    'DEZ',
+  ];
+
+  /// Mes abreviado em maiusculas: "DEZ".
+  static String mesCurto(DateTime value) => _meses[value.month - 1];
 
   /// Data em texto longo: "4 de dezembro de 2026".
   static String dataLonga(DateTime value) => _diaMesAno.format(value);
@@ -33,9 +54,9 @@ class Fmt {
         inicio.month == fim.month &&
         inicio.day == fim.day;
     if (mesmoDia) {
-      return '${_diaMes.format(inicio)}, ${hora(inicio)} as ${hora(fim)}';
+      return '${_diaMes.format(inicio)}, ${hora(inicio)} às ${hora(fim)}';
     }
-    return '${_diaMes.format(inicio)}, ${hora(inicio)} ate '
+    return '${_diaMes.format(inicio)}, ${hora(inicio)} até '
         '${_diaMes.format(fim)}, ${hora(fim)}';
   }
 
@@ -76,7 +97,9 @@ class Fmt {
   }) {
     final partes = <String>[
       if (logradouro.isNotEmpty)
-        numero != null && numero.isNotEmpty ? '$logradouro, $numero' : logradouro,
+        numero != null && numero.isNotEmpty
+            ? '$logradouro, $numero'
+            : logradouro,
       if (bairro.isNotEmpty) bairro,
       if (cidade.isNotEmpty) uf.isNotEmpty ? '$cidade - $uf' : cidade,
     ];

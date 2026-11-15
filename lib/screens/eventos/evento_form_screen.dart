@@ -86,14 +86,14 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
       initialDate: atual,
       firstDate: DateTime(2000),
       lastDate: DateTime(2100),
-      helpText: inicio ? 'Data de inicio' : 'Data de fim',
+      helpText: inicio ? 'Data de início' : 'Data de fim',
     );
     if (data == null || !mounted) return;
 
     final hora = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(hour: atual.hour, minute: atual.minute),
-      helpText: inicio ? 'Hora de inicio' : 'Hora de fim',
+      helpText: inicio ? 'Hora de início' : 'Hora de fim',
     );
     if (!mounted) return;
 
@@ -194,8 +194,8 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                       maxLength: 100,
                       textCapitalization: TextCapitalization.sentences,
                       decoration: const InputDecoration(
-                        labelText: 'Titulo *',
-                        helperText: 'Ate 100 caracteres',
+                        labelText: 'Título *',
+                        helperText: 'Até 100 caracteres',
                       ),
                       validator: Validators.tituloEvento,
                     ),
@@ -206,7 +206,7 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                       maxLines: 4,
                       textCapitalization: TextCapitalization.sentences,
                       decoration: const InputDecoration(
-                        labelText: 'Descricao',
+                        labelText: 'Descrição',
                         alignLabelWithHint: true,
                       ),
                     ),
@@ -217,7 +217,7 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                       children: [
                         Expanded(
                           child: _CampoDataHora(
-                            rotulo: 'Inicio *',
+                            rotulo: 'Início *',
                             valor: _inicio,
                             onPressed: () => _escolherDataHora(inicio: true),
                           ),
@@ -234,8 +234,8 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                     ),
                     const SizedBox(height: 6),
                     _Nota(
-                      'As datas sao interpretadas em horario de Brasilia, como '
-                      'no back-end. O fim precisa ser depois do inicio.',
+                      'As datas são interpretadas no horário de Brasília. O fim '
+                      'precisa ser depois do início.',
                     ),
                     const SizedBox(height: 20),
 
@@ -260,7 +260,7 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                           child: TextFormField(
                             controller: _numero,
                             decoration: const InputDecoration(
-                              labelText: 'Numero',
+                              labelText: 'Número',
                               hintText: '123',
                             ),
                           ),
@@ -269,9 +269,9 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                     ),
                     const SizedBox(height: 6),
                     _Nota(
-                      'Rua, bairro e cidade sao preenchidos pelo servidor a '
-                      'partir do CEP (consulta ao ViaCEP), por isso salvar pode '
-                      'levar alguns segundos.',
+                      'Rua, bairro e cidade são preenchidos automaticamente a '
+                      'partir do CEP, por isso salvar pode levar alguns '
+                      'segundos.',
                     ),
                     const SizedBox(height: 20),
 
@@ -292,8 +292,8 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                       decoration: const InputDecoration(
                         labelText: 'URL da foto',
                         hintText: 'https://...',
-                        helperText: 'A API guarda o endereco da imagem, '
-                            'nao faz upload de arquivo',
+                        helperText:
+                            'Cole o endereço de uma imagem já publicada',
                       ),
                       validator: Validators.fotoUrl,
                     ),
@@ -301,9 +301,9 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                     if (widget.editando) ...[
                       const SizedBox(height: 16),
                       _Nota(
-                        'A edicao reescreve todos os campos do evento e '
-                        'reconsulta o CEP. Os valores acima ja vem carregados '
-                        'justamente para que nada se perca.',
+                        'Salvar reescreve todos os campos do evento e consulta '
+                        'o CEP de novo. Os valores atuais já vêm preenchidos '
+                        'para que nada se perca.',
                       ),
                     ],
 
@@ -325,7 +325,7 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                             _salvando
                                 ? 'Salvando...'
                                 : widget.editando
-                                ? 'Salvar alteracoes'
+                                ? 'Salvar alterações'
                                 : 'Criar evento',
                           ),
                         ),
@@ -408,8 +408,7 @@ class _Nota extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text(
     texto,
-    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-      color: Theme.of(context).colorScheme.onSurfaceVariant,
-    ),
+    style: Theme.of(context).textTheme.bodySmall
+        ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
   );
 }

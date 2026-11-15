@@ -8,13 +8,27 @@ import 'api_exception.dart';
 
 /// Unico ponto do app que fala HTTP.
 ///
-/// Concentra o que nao deve ser repetido em cada repositorio: montagem da URL
-/// (relativa, para manter a mesma origem), timeout, decodificacao UTF-8 e
-/// traducao de qualquer falha para [ApiException].
+/// Concentra o que nao deve ser repetido em cada repositorio: montagem da URL,
+/// o header `Authorization`, timeout, decodificacao UTF-8 e traducao de
+/// qualquer falha para [ApiException].
 class ApiClient {
   ApiClient({http.Client? client}) : _client = client ?? http.Client();
 
   final http.Client _client;
+
+  /// Devolve o token JWT atual, ou `null` se ninguem estiver logado.
+  ///
+  /// Preenchido por `Services`, que liga o cliente a `Sessao`. Fica como
+  /// callback (e nao como campo com o token) para que cada requisicao leia o
+  /// valor do momento, inclusive depois de um novo login.
+  String? Function()? tokenProvider;
+
+  /// Chamado quando uma requisicao **autenticada** volta 401: o token expirou
+  /// ou foi invalidado. A sessao usa isso para voltar a tela de login.
+  ///
+  /// O 401 do proprio `POST /auth/login` (senha errada) nao dispara isto,
+  /// porque nesse pedido ainda nao ha token.
+  void Function()? onUnauthorized;
 
   void close() => _client.close();
 
@@ -41,6 +55,12 @@ class ApiClient {
     final uri = resolve(path, query);
     final request = http.Request(method, uri);
     request.headers['Accept'] = 'application/json';
+
+    final token = tokenProvider?.call();
+    if (token != null && token.isNotEmpty) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+
     if (body != null) {
       request.headers['Content-Type'] = 'application/json; charset=utf-8';
       request.body = jsonEncode(body);
@@ -48,9 +68,7 @@ class ApiClient {
 
     final http.Response response;
     try {
-      final streamed = await _client
-          .send(request)
-          .timeout(ApiConfig.timeout);
+      final streamed = await _client.send(request).timeout(ApiConfig.timeout);
       response = await http.Response.fromStream(streamed);
     } on TimeoutException {
       throw ApiException.timeout(path);
@@ -62,23 +80,18 @@ class ApiClient {
     // rotas; `response.body` cairia em latin-1 e quebraria os acentos.
     final text = utf8.decode(response.bodyBytes, allowMalformed: true);
 
-    if (response.statusCode == 204 || text.trim().isEmpty) {
-      if (response.statusCode >= 400) {
-        throw ApiException.fromResponse(response.statusCode, text, path);
-      }
-      return null;
-    }
-
     if (response.statusCode >= 400) {
+      if (response.statusCode == 401 && token != null) onUnauthorized?.call();
       throw ApiException.fromResponse(response.statusCode, text, path);
     }
+
+    if (response.statusCode == 204 || text.trim().isEmpty) return null;
 
     try {
       return jsonDecode(text);
     } on FormatException {
       // Corpo que nao e JSON com status de sucesso quase sempre significa que o
-      // pedido nao chegou a API e foi atendido pelo servidor de arquivos do
-      // site. Detectar isso aqui transforma um erro opaco em instrucao.
+      // pedido nao chegou a API e foi atendido por um servidor de arquivos.
       if (_parecePaginaHtml(text)) throw ApiException.misrouted(path);
       throw ApiException.badPayload(path);
     }
@@ -93,8 +106,8 @@ class ApiClient {
 
   /// Monta a URL final. Visivel para teste.
   ///
-  /// Com [ApiConfig.baseUrl] relativo (`/api`), resolve contra a origem da
-  /// pagina. Com base absoluta, usa a base como esta.
+  /// Com [ApiConfig.baseUrl] absoluto, usa a base como esta; relativo, resolve
+  /// contra a origem da pagina.
   static Uri resolve(String path, [Map<String, dynamic>? query]) {
     final base = ApiConfig.baseUrl.endsWith('/')
         ? ApiConfig.baseUrl.substring(0, ApiConfig.baseUrl.length - 1)
