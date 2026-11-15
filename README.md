@@ -18,6 +18,32 @@
 
 ---
 
+## Início rápido
+
+Ao clonar o projeto, execute (precisa do [Flutter](#pré-requisitos) e do Chrome):
+
+```sh
+git clone https://github.com/Stack-Flux-Group/acontece-frontend.git
+cd acontece-frontend
+flutter pub get
+```
+
+**Rodar em localhost com a API de produção** (padrão, não precisa subir nada):
+
+```sh
+flutter run -d chrome --web-port=5173
+```
+
+**Rodar em localhost com a API local** (`acontece-api` rodando em `http://localhost:8080`):
+
+```sh
+flutter run -d chrome --web-port=5173 --dart-define=API_BASE_URL=http://localhost:8080
+```
+
+> A porta **5173** é obrigatória: é a origem liberada no CORS da API. Em outra porta o site mostra "Sem conexão com a API". O primeiro acesso à API de produção pode levar ~2,5 min (servidor gratuito acordando). Detalhes em [Instalação e execução](#instalação-e-execução).
+
+---
+
 ## Índice
 
 1. [Sobre o projeto](#sobre-o-projeto)
