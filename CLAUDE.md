@@ -25,11 +25,21 @@ flutter test --plain-name "apaga o telefone com string vazia"   # um teste
 flutter build web --release      # build de produção em build/web
 ```
 
-### Rodar o app (dois processos)
+### Modo demo (padrão)
+
+Por padrão, `main.dart` injeta `core/demo_backend.dart`: um back-end falso em memória (via `MockClient`) que responde todas as rotas no formato real da API, com dados de exemplo. Não precisa de API nem de proxy:
+
+```sh
+flutter run -d chrome   # ou -d web-server, e abrir a porta que ele mostrar
+```
+
+Os dados voltam ao estado inicial ao recarregar a página. Para usar a API de verdade, passe `--dart-define=USE_API=true` e siga a seção abaixo.
+
+### Rodar o app contra a API (dois processos)
 
 ```sh
 node tools/dev_proxy.mjs
-flutter run -d web-server --web-hostname=127.0.0.1 --web-port=5000
+flutter run -d web-server --web-hostname=127.0.0.1 --web-port=5000 --dart-define=USE_API=true
 ```
 
 Depois abra **http://localhost:8081**, a porta do **proxy**. Ver "A regra da mesma origem" abaixo — abrir a 5000 é o erro mais comum neste projeto.

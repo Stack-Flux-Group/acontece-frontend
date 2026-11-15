@@ -2,6 +2,8 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'core/api_client.dart';
+import 'core/demo_backend.dart';
 import 'core/theme.dart';
 import 'screens/home_shell.dart';
 import 'services.dart';
@@ -12,7 +14,16 @@ void main() {
   initializeDateFormatting('pt_BR');
   Intl.defaultLocale = 'pt_BR';
 
-  runApp(Services(child: const AconteceApp()));
+  // Por padrao o app roda com um back-end falso em memoria, para ser
+  // visualizado sem a API e sem o proxy. Para usar a API de verdade:
+  // `--dart-define=USE_API=true` (e o tools/dev_proxy.mjs na 8081).
+  const usarApi = bool.fromEnvironment('USE_API');
+  runApp(
+    Services(
+      client: usarApi ? null : ApiClient(client: DemoBackend().client),
+      child: const AconteceApp(),
+    ),
+  );
 }
 
 class AconteceApp extends StatelessWidget {
