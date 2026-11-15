@@ -99,13 +99,25 @@ Envelope único (`GlobalExceptionHandler`): `{timestamp, status, error, message,
 
 Instância gratuita do Render que hiberna; medido 146–148 s (último em 15/11/2026, no `POST /auth/login`). Daí o timeout de **180 s** e os avisos de "acordando o servidor" após 8 s (`AsyncView` e `AvisoServidorLento` nos formulários de entrada). Não reduza esses valores.
 
+## Layout responsivo e cores
+
+- Faixas de tela: enum `Tela` em `core/theme.dart` (celular < 600, tablet < 900, notebook < 1280, desktop). Use `Tela.of(context)`; **não** compare `MediaQuery` com números soltos. Para decisões que dependem da largura que sobra ao conteúdo (a barra lateral ocupa 88 ou 248 px), use `LayoutBuilder`, como a grade de eventos e o detalhe.
+- Cartão de evento: altura fixa (`EventoCard.altura`), grade com `SliverGridDelegateWithFixedCrossAxisCount`. Não volte para `Wrap` nem para `maxCrossAxisExtent` (este arredonda para cima e gera colunas de 184 px no celular).
+- **Cores sólidas.** Fundo translúcido some conforme o que está atrás. Em `ChoiceChip` o fundo vem de `color` (`WidgetStateProperty`), **não** de `backgroundColor`, que é ignorado no Material 3 e deixava texto branco sobre chip branco.
+- Itens `enabled: false` de `PopupMenuItem` são pintados em cinza claro pelo Material; dê cor explícita ao texto.
+- O botão desabilitado padrão do Material 3 tem contraste 2,3:1 nesta paleta; `AppTheme` define as cores desabilitadas. Não adicione `iconButtonTheme` global: fez o ícone de `IconButton.filled` sumir.
+- A capa do detalhe usa altura **mínima** (cresce com o título) e `ContentWidth` centraliza: filho que não ocupa a largura toda fica centralizado, então use `SizedBox(width: double.infinity)`.
+
 ## Testes
 
-71 testes:
+138 testes:
 
 - `test/validators_test.dart` — validações espelhadas do Bean Validation (inclui senha 8–72)
 - `test/api_test.dart` — datas, envelope de erro, 401/403, modelos, JWT/sessão, paginação, URL
 - `test/app_test.dart` — **telas renderizadas de verdade**, com `MockClient` devolvendo corpos reais da API. `_appCom(..., logado: Papel.x)` começa já logado (sessão no `MemoryTokenStorage`); sem `logado`, abre no login. `_tela(tester)` fixa uma janela larga (1400 px) — sem isso o teste roda em 800×600, no layout estreito.
+
+- `test/contraste_test.dart` — contraste WCAG dos pares de cores (texto ≥ 4,5:1, ícones e bordas ≥ 3:1). Se mudar uma cor, esse teste diz se ficou ilegível. Os selos expõem suas cores em `coresStatusInscricao` e `coresEventoStatus` justamente para ele.
+- O grupo "layout responsivo" de `app_test.dart` roda as telas em 375 / 768 / 1100 / 1920 px nos dois papéis; um overflow em qualquer largura derruba o teste.
 
 Ao adicionar teste de widget, chame `initializeDateFormatting('pt_BR')` no `setUpAll`. Prefira fixtures copiadas de respostas reais da API.
 

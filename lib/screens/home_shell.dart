@@ -71,8 +71,7 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
-    final largura = MediaQuery.sizeOf(context).width;
-    final compacto = largura < AppTheme.compactBreakpoint;
+    final tela = Tela.of(context);
 
     // As telas sao mantidas vivas para que trocar de aba nao refaca a chamada
     // a API — importante quando o cold start custa minutos.
@@ -81,7 +80,9 @@ class _HomeShellState extends State<HomeShell> {
       children: [for (final aba in _abas) aba.tela],
     );
 
-    if (compacto) {
+    // Celular: barra inferior. Tablet: barra lateral so com icones. Notebook e
+    // desktop: barra lateral completa.
+    if (tela.ehCelular) {
       return Scaffold(
         body: SafeArea(child: conteudo),
         bottomNavigationBar: NavigationBar(
@@ -103,6 +104,7 @@ class _HomeShellState extends State<HomeShell> {
       body: Row(
         children: [
           _BarraLateral(
+            compacta: tela.ehTablet,
             abas: _abas,
             selecionada: _aba,
             usuario: widget.usuario,
@@ -117,12 +119,15 @@ class _HomeShellState extends State<HomeShell> {
 
 class _BarraLateral extends StatelessWidget {
   const _BarraLateral({
+    required this.compacta,
     required this.abas,
     required this.selecionada,
     required this.usuario,
     required this.onSelecionar,
   });
 
+  /// Tablet: so icones e um rotulo curto, 88 px de largura.
+  final bool compacta;
   final List<_Aba> abas;
   final int selecionada;
   final UsuarioLogado usuario;
@@ -130,7 +135,7 @@ class _BarraLateral extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    width: 248,
+    width: compacta ? 88 : 248,
     decoration: const BoxDecoration(
       gradient: LinearGradient(
         begin: Alignment.topCenter,
@@ -140,38 +145,59 @@ class _BarraLateral extends StatelessWidget {
     ),
     child: SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 28, 16, 16),
+        padding: EdgeInsets.fromLTRB(
+          compacta ? 10 : 16,
+          28,
+          compacta ? 10 : 16,
+          16,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Padding(
-              padding: EdgeInsets.only(left: 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: LogoAcontece(tamanho: 34, corTexto: Colors.white),
-              ),
-            ),
-            const SizedBox(height: 36),
             Padding(
-              padding: const EdgeInsets.only(left: 12, bottom: 8),
-              child: Text(
-                usuario.ehOrganizador ? 'GESTÃO' : 'MENU',
-                style: TextStyle(
-                  color: Paleta.ciano.withValues(alpha: 0.6),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.4,
+              padding: EdgeInsets.only(left: compacta ? 0 : 8),
+              child: Align(
+                alignment: compacta ? Alignment.center : Alignment.centerLeft,
+                child: LogoAcontece(
+                  tamanho: 34,
+                  corTexto: Colors.white,
+                  mostrarNome: !compacta,
                 ),
               ),
             ),
-            for (var i = 0; i < abas.length; i++)
-              _ItemMenu(
-                aba: abas[i],
-                selecionado: i == selecionada,
-                onTap: () => onSelecionar(i),
+            const SizedBox(height: 36),
+            if (!compacta)
+              Padding(
+                padding: const EdgeInsets.only(left: 12, bottom: 8),
+                child: Text(
+                  usuario.ehOrganizador ? 'GESTÃO' : 'MENU',
+                  style: TextStyle(
+                    color: Paleta.ciano.withValues(alpha: 0.8),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.4,
+                  ),
+                ),
               ),
-            const Spacer(),
-            _CartaoUsuario(usuario: usuario),
+            Expanded(
+              // Rola se a janela for baixa demais para todas as abas.
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < abas.length; i++)
+                      _ItemMenu(
+                        compacta: compacta,
+                        aba: abas[i],
+                        selecionado: i == selecionada,
+                        onTap: () => onSelecionar(i),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _CartaoUsuario(usuario: usuario, compacta: compacta),
           ],
         ),
       ),
@@ -181,11 +207,13 @@ class _BarraLateral extends StatelessWidget {
 
 class _ItemMenu extends StatelessWidget {
   const _ItemMenu({
+    required this.compacta,
     required this.aba,
     required this.selecionado,
     required this.onTap,
   });
 
+  final bool compacta;
   final _Aba aba;
   final bool selecionado;
   final VoidCallback onTap;
@@ -201,26 +229,55 @@ class _ItemMenu extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         hoverColor: Colors.white.withValues(alpha: 0.06),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-          child: Row(
-            children: [
-              Icon(
-                selecionado ? aba.iconeSelecionado : aba.icone,
-                size: 21,
-                color: selecionado ? Paleta.marinho : Paleta.ciano,
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  aba.rotulo,
-                  style: TextStyle(
-                    color: selecionado ? Paleta.marinho : Colors.white,
-                    fontWeight: selecionado ? FontWeight.w700 : FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
+          padding: EdgeInsets.symmetric(
+            horizontal: compacta ? 4 : 14,
+            vertical: compacta ? 10 : 13,
           ),
+          child: compacta
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      selecionado ? aba.iconeSelecionado : aba.icone,
+                      size: 22,
+                      color: selecionado ? Paleta.marinho : Paleta.ciano,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      aba.rotuloCurto,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: selecionado ? Paleta.marinho : Colors.white,
+                        fontWeight: selecionado
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Icon(
+                      selecionado ? aba.iconeSelecionado : aba.icone,
+                      size: 21,
+                      color: selecionado ? Paleta.marinho : Paleta.ciano,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        aba.rotulo,
+                        style: TextStyle(
+                          color: selecionado ? Paleta.marinho : Colors.white,
+                          fontWeight: selecionado
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
         ),
       ),
     ),
@@ -228,12 +285,34 @@ class _ItemMenu extends StatelessWidget {
 }
 
 class _CartaoUsuario extends StatelessWidget {
-  const _CartaoUsuario({required this.usuario});
+  const _CartaoUsuario({required this.usuario, required this.compacta});
 
   final UsuarioLogado usuario;
+  final bool compacta;
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    if (compacta) {
+      // Tablet: so o avatar e o botao de sair, empilhados.
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Tooltip(
+            message: '${usuario.email} (${usuario.papel.rotulo})',
+            child: AvatarUsuario(usuario: usuario, raio: 18),
+          ),
+          IconButton(
+            tooltip: 'Sair',
+            onPressed: () => Services.of(context).sessao.sair(),
+            icon: const Icon(Icons.logout, color: Paleta.ciano, size: 22),
+          ),
+        ],
+      );
+    }
+    return _cartaoCompleto(context);
+  }
+
+  Widget _cartaoCompleto(BuildContext context) => Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
       color: Colors.white.withValues(alpha: 0.07),
@@ -303,9 +382,8 @@ class ContaBotao extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (MediaQuery.sizeOf(context).width >= AppTheme.compactBreakpoint) {
-      return const SizedBox.shrink();
-    }
+    // So no celular: de tablet para cima a barra lateral ja tem o "Sair".
+    if (!Tela.of(context).ehCelular) return const SizedBox.shrink();
     return PopupMenuButton<String>(
       tooltip: 'Conta',
       onSelected: (valor) {
@@ -317,11 +395,21 @@ class ContaBotao extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Cor explicita: o item e "desabilitado" (so informativo) e o
+              // Material o pintaria em cinza claro, quase ilegivel.
               Text(
                 usuario.email,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
               ),
-              Text(usuario.papel.rotulo),
+              Text(
+                usuario.papel.rotulo,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
             ],
           ),
         ),
@@ -348,6 +436,14 @@ class ContaBotao extends StatelessWidget {
 class _Aba {
   const _Aba(this.rotulo, this.icone, this.iconeSelecionado, this.tela);
   final String rotulo;
+
+  /// Rotulo de uma palavra, para a barra lateral compacta do tablet.
+  String get rotuloCurto => switch (rotulo) {
+    'Minhas inscrições' => 'Inscrições',
+    'Meu perfil' => 'Perfil',
+    'Participantes' => 'Pessoas',
+    _ => rotulo,
+  };
   final IconData icone;
   final IconData iconeSelecionado;
   final Widget tela;

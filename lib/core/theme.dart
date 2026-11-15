@@ -46,16 +46,52 @@ class Paleta {
   ];
 }
 
+/// Faixas de largura de tela. Todo layout responsivo do site decide por aqui,
+/// em vez de comparar larguras soltas em cada tela.
+///
+///  * celular: < 600 — navegacao inferior, uma coluna
+///  * tablet: 600 a 899 — barra lateral compacta, so icones
+///  * notebook: 900 a 1279 — barra lateral completa
+///  * desktop: >= 1280 — barra lateral completa e conteudo mais largo
+enum Tela {
+  celular,
+  tablet,
+  notebook,
+  desktop;
+
+  static Tela daLargura(double largura) => largura < 600
+      ? celular
+      : largura < 900
+      ? tablet
+      : largura < 1280
+      ? notebook
+      : desktop;
+
+  static Tela of(BuildContext context) =>
+      daLargura(MediaQuery.sizeOf(context).width);
+
+  bool get ehCelular => this == celular;
+  bool get ehTablet => this == tablet;
+
+  /// Notebook ou desktop: cabe barra lateral completa e layout em colunas.
+  bool get ehLarga => this == notebook || this == desktop;
+
+  /// Respiro lateral do conteudo.
+  double get margem => switch (this) {
+    celular => 16,
+    tablet => 24,
+    notebook => 32,
+    desktop => 40,
+  };
+
+  /// Largura maxima do conteudo. Sem limite, em monitor largo as listas
+  /// esticariam por 2000 px e o site ficaria ilegivel.
+  double get larguraMaxima => this == desktop ? 1280 : 1100;
+}
+
 /// Tema do site, construido a partir da paleta da marca, claro e escuro.
 class AppTheme {
   const AppTheme._();
-
-  /// Largura maxima do conteudo. Sem isso, em monitor largo as listas esticam
-  /// por 2000 px e o site fica ilegivel.
-  static const double maxContentWidth = 1100;
-
-  /// Abaixo disso a navegacao vai para a barra inferior.
-  static const double compactBreakpoint = 900;
 
   static ThemeData light() => _base(_claro());
   static ThemeData dark() => _base(_escuro());
@@ -180,8 +216,13 @@ class AppTheme {
           borderSide: BorderSide(color: scheme.primary, width: 2),
         ),
       ),
+      // Estados desabilitados com contraste legivel. O padrao do Material 3
+      // (texto 38% sobre fundo 12%) da 2,3:1 nesta paleta, e botoes como
+      // "Evento encerrado" ficavam ilegiveis.
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
+          disabledBackgroundColor: scheme.surfaceContainerHighest,
+          disabledForegroundColor: scheme.onSurfaceVariant,
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -191,11 +232,21 @@ class AppTheme {
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
+          disabledForegroundColor: scheme.onSurfaceVariant,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
         ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          disabledForegroundColor: scheme.onSurfaceVariant,
+        ),
+      ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        color: scheme.primary,
+        linearTrackColor: scheme.surfaceContainerHighest,
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: scheme.primary,
@@ -221,27 +272,32 @@ class AppTheme {
   }
 }
 
-/// Centraliza e limita a largura do conteudo, com respiro lateral no celular.
+/// Centraliza e limita a largura do conteudo, com respiro lateral que cresce
+/// do celular ao desktop.
 class ContentWidth extends StatelessWidget {
-  const ContentWidth({
-    super.key,
-    required this.child,
-    this.maxWidth = AppTheme.maxContentWidth,
-  });
+  const ContentWidth({super.key, required this.child, this.maxWidth});
 
   final Widget child;
-  final double maxWidth;
+
+  /// Teto de largura. Sem valor, usa o da faixa de tela ([Tela.larguraMaxima]);
+  /// formularios passam um valor menor para nao ficarem esticados.
+  final double? maxWidth;
 
   @override
-  Widget build(BuildContext context) => Center(
-    child: ConstrainedBox(
-      constraints: BoxConstraints(maxWidth: maxWidth),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: child,
+  Widget build(BuildContext context) {
+    final tela = Tela.of(context);
+    return Center(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: (maxWidth ?? tela.larguraMaxima) + tela.margem * 2,
+        ),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: tela.margem),
+          child: child,
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// Marca do site: icone em degrade e o nome.

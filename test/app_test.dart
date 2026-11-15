@@ -5,6 +5,7 @@ import 'package:acontece_frontend/core/token_storage.dart';
 import 'package:acontece_frontend/main.dart';
 import 'package:acontece_frontend/models/auth.dart';
 import 'package:acontece_frontend/services.dart';
+import 'package:acontece_frontend/widgets/evento_card.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -642,5 +643,206 @@ void main() {
 
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(find.byTooltip('Conta'), findsOneWidget);
+  });
+
+  group('layout responsivo', () {
+    // Eventos de conteudo bem diferente: titulo curto sem descricao, titulo
+    // longo com descricao longa, e um de titulo medio. Os cartoes precisam sair
+    // com a mesma altura mesmo assim.
+    const eventosVariados = '''
+    [{"id":1,"titulo":"Feira","descricao":"",
+      "dataInicio":"2026-12-04T17:00:00","dataFim":"2026-12-08T17:00:00",
+      "vagas":1,"endereco":{"cep":"85601-000","logradouro":"Rua A","bairro":"Centro",
+      "cidade":"Francisco Beltrao","uf":"PR","numero":null},"fotoUrl":null},
+     {"id":2,"titulo":"Festival Internacional de Musica e Cultura Popular da Regiao Sudoeste do Parana",
+      "descricao":"Tres dias de shows, oficinas, feira gastronomica, exposicoes de arte e apresentacoes para toda a familia, com entrada solidaria e atracoes nacionais.",
+      "dataInicio":"2026-12-10T09:00:00","dataFim":"2026-12-12T23:00:00",
+      "vagas":2000,"endereco":{"cep":"85601-000","logradouro":"Rua B","bairro":"Centro",
+      "cidade":"Francisco Beltrao","uf":"PR","numero":"10"},"fotoUrl":null},
+     {"id":3,"titulo":"Workshop de Flutter",
+      "descricao":"Curso pratico.",
+      "dataInicio":"2026-12-15T14:00:00","dataFim":"2026-12-15T18:00:00",
+      "vagas":30,"endereco":{"cep":"85601-000","logradouro":"Rua C","bairro":"Centro",
+      "cidade":"Pato Branco","uf":"PR","numero":"5"},"fotoUrl":null},
+     {"id":4,"titulo":"Corrida","descricao":"Percurso de 5 km pela orla, com kit e medalha para quem completar a prova.",
+      "dataInicio":"2026-12-20T07:00:00","dataFim":"2026-12-20T10:00:00",
+      "vagas":500,"endereco":{"cep":"85601-000","logradouro":"Rua D","bairro":"Centro",
+      "cidade":"Francisco Beltrao","uf":"PR","numero":null},"fotoUrl":null}]
+    ''';
+
+    testWidgets('todos os cartoes de evento tem exatamente o mesmo tamanho', (
+      tester,
+    ) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {'/evento/listar/': _ok(eventosVariados)},
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final cartoes = find.byType(EventoCard);
+      expect(cartoes, findsNWidgets(4));
+      final tamanhos = [
+        for (var i = 0; i < 4; i++) tester.getSize(cartoes.at(i)),
+      ];
+      expect(tamanhos[1], tamanhos[0]);
+      expect(tamanhos[2], tamanhos[0]);
+      expect(tamanhos[3], tamanhos[0]);
+    });
+
+    testWidgets('mantem o mesmo tamanho com a fonte do sistema ampliada', (
+      tester,
+    ) async {
+      _tela(tester, largura: 375, altura: 812);
+      tester.platformDispatcher.textScaleFactorTestValue = 1.4;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {'/evento/listar/': _ok(eventosVariados)},
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final cartoes = find.byType(EventoCard);
+      final primeiro = tester.getSize(cartoes.at(0));
+      expect(tester.getSize(cartoes.at(1)), primeiro);
+      expect(tester.getSize(cartoes.at(2)), primeiro);
+      expect(tester.getSize(cartoes.at(3)), primeiro);
+    });
+
+    /// Colunas da grade: quantos cartoes ficam na mesma linha.
+    int colunas(WidgetTester tester) {
+      final cartoes = find.byType(EventoCard);
+      final topo = tester.getTopLeft(cartoes.at(0)).dy;
+      var n = 0;
+      for (var i = 0; i < tester.widgetList(cartoes).length; i++) {
+        if ((tester.getTopLeft(cartoes.at(i)).dy - topo).abs() < 1) n++;
+      }
+      return n;
+    }
+
+    // celular, tablet, notebook e desktop.
+    const faixas = <(String, double, double)>[
+      ('celular', 375, 812),
+      ('tablet', 768, 1024),
+      ('notebook', 1100, 768),
+      ('desktop', 1920, 1080),
+    ];
+
+    for (final (nome, largura, altura) in faixas) {
+      for (final papel in Papel.values) {
+        testWidgets('$nome (${largura.toInt()} px), ${papel.rotulo}: telas '
+            'sem overflow e com a navegacao certa', (tester) async {
+          _tela(tester, largura: largura, altura: altura);
+          const inscricoes = '''
+          {"content":[
+            {"id":10,"participanteId":7,"participanteNome":"Maria Aparecida da Silva Santos",
+             "eventoId":2,"eventoTitulo":"Festival Internacional de Musica e Cultura Popular",
+             "status":"PENDENTE","dataInscricao":"2026-11-13T10:00:00"},
+            {"id":11,"participanteId":8,"participanteNome":"Joao Souza",
+             "eventoId":1,"eventoTitulo":"Feira","status":"CONFIRMADA",
+             "dataInscricao":"2026-11-14T09:30:00"}],
+           "page":{"size":20,"number":0,"totalElements":2,"totalPages":1}}
+          ''';
+          const participantes = '''
+          {"content":[
+            {"id":1,"nome":"Maria Aparecida da Silva Santos","email":"maria.aparecida.santos@exemplo.com.br",
+             "cpf":"52998224725","telefone":"46999887766"}],
+           "page":{"size":20,"number":0,"totalElements":1,"totalPages":1}}
+          ''';
+          await tester.pumpWidget(
+            _appCom(
+              (_) => {
+                '/evento/listar/': _ok(eventosVariados),
+                '/evento/buscar/2': _ok(
+                  jsonEncode((jsonDecode(eventosVariados) as List)[1]),
+                ),
+                '/inscricoes': _ok(inscricoes),
+                '/participantes/7': _ok(
+                  '{"id":7,"nome":"Maria Silva","email":"maria@exemplo.com",'
+                  '"cpf":"52998224725","telefone":"46999887766"}',
+                ),
+                '/participantes': _ok(participantes),
+              },
+              logado: papel,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          // Navegacao: barra inferior so no celular; barra lateral completa
+          // (com o rotulo de secao) so de notebook para cima.
+          expect(
+            find.byType(NavigationBar),
+            nome == 'celular' ? findsOneWidget : findsNothing,
+          );
+          final secao = papel == Papel.organizador ? 'GESTÃO' : 'MENU';
+          expect(
+            find.text(secao),
+            nome == 'notebook' || nome == 'desktop'
+                ? findsOneWidget
+                : findsNothing,
+          );
+
+          // Colunas da grade conforme a largura que sobra ao conteudo.
+          final esperadas = switch (nome) {
+            'celular' => 1,
+            'tablet' => 2,
+            'notebook' => 2,
+            _ => 4,
+          };
+          expect(colunas(tester), esperadas);
+
+          // Detalhe do evento (titulo longo e descricao longa).
+          await tester.ensureVisible(find.byType(EventoCard).at(1));
+          await tester.pumpAndSettle();
+          await tester.tap(find.byType(EventoCard).at(1));
+          await tester.pumpAndSettle();
+          expect(find.text('Sobre o evento'), findsOneWidget);
+          await tester.tap(find.byTooltip('Voltar'));
+          await tester.pumpAndSettle();
+
+          // As demais abas, pelo rotulo de cada faixa.
+          Future<void> irPara(List<String> rotulos) async {
+            for (final r in rotulos) {
+              final alvo = find.text(r);
+              if (alvo.evaluate().isNotEmpty) {
+                await tester.tap(alvo.first);
+                await tester.pumpAndSettle();
+                return;
+              }
+            }
+            fail('Nenhuma aba encontrada entre $rotulos');
+          }
+
+          await irPara(['Minhas inscrições', 'Inscrições']);
+          expect(
+            find.text('Joao Souza'),
+            papel == Papel.organizador ? findsOneWidget : findsNothing,
+          );
+          if (papel == Papel.organizador) {
+            await irPara(['Participantes', 'Pessoas']);
+            expect(find.textContaining('maria.aparecida'), findsOneWidget);
+          } else {
+            await irPara(['Meu perfil', 'Perfil']);
+            expect(find.text('Excluir minha conta'), findsOneWidget);
+          }
+        });
+      }
+
+      testWidgets('$nome (${largura.toInt()} px): tela de entrada e cadastro '
+          'sem overflow', (tester) async {
+        _tela(tester, largura: largura, altura: altura);
+        await tester.pumpWidget(_appCom((_) => {}));
+        await tester.pumpAndSettle();
+        expect(find.text('Bem-vindo de volta'), findsOneWidget);
+
+        await tester.tap(find.text('Criar conta'));
+        await tester.pumpAndSettle();
+        expect(find.text('Criar conta e entrar'), findsOneWidget);
+      });
+    }
   });
 }

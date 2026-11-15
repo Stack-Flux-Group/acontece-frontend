@@ -7,6 +7,7 @@ import '../../core/validators.dart';
 import '../../models/participante.dart';
 import '../../services.dart';
 import '../../widgets/error_banner.dart';
+import '../../widgets/par_responsivo.dart';
 
 /// Cadastro (pelo organizador) e edicao de participante (pelo organizador ou
 /// pelo proprio participante, em "Meu perfil").
@@ -239,35 +240,32 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
                     ],
 
                     const SizedBox(height: 28),
-                    Row(
-                      children: [
-                        FilledButton.icon(
-                          onPressed: _salvando ? null : _salvar,
-                          icon: _salvando
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.save_outlined),
-                          label: Text(
-                            _salvando
-                                ? 'Salvando...'
-                                : widget.editando
-                                ? 'Salvar alterações'
-                                : 'Cadastrar',
-                          ),
+                    AcoesFormulario(
+                      principal: FilledButton.icon(
+                        onPressed: _salvando ? null : _salvar,
+                        icon: _salvando
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.save_outlined),
+                        label: Text(
+                          _salvando
+                              ? 'Salvando...'
+                              : widget.editando
+                              ? 'Salvar alterações'
+                              : 'Cadastrar',
                         ),
-                        const SizedBox(width: 12),
-                        TextButton(
-                          onPressed: _salvando
-                              ? null
-                              : () => Navigator.of(context).pop(false),
-                          child: const Text('Cancelar'),
-                        ),
-                      ],
+                      ),
+                      secundario: TextButton(
+                        onPressed: _salvando
+                            ? null
+                            : () => Navigator.of(context).pop(false),
+                        child: const Text('Cancelar'),
+                      ),
                     ),
                   ],
                 ),

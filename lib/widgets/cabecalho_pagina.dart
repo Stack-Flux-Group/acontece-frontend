@@ -23,8 +23,8 @@ class CabecalhoPagina extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final texto = Theme.of(context).textTheme;
-    final compacto =
-        MediaQuery.sizeOf(context).width < AppTheme.compactBreakpoint;
+    final tela = Tela.of(context);
+    final compacto = tela.ehCelular;
 
     return Container(
       width: double.infinity,
@@ -42,7 +42,12 @@ class CabecalhoPagina extends StatelessWidget {
             child: _Bolha(160, Paleta.ciano.withValues(alpha: 0.08)),
           ),
           Padding(
-            padding: EdgeInsets.fromLTRB(0, compacto ? 20 : 36, 0, 28),
+            padding: EdgeInsets.fromLTRB(
+              0,
+              compacto ? 16 : 36,
+              0,
+              compacto ? 20 : 28,
+            ),
             child: ContentWidth(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -57,12 +62,7 @@ class CabecalhoPagina extends StatelessWidget {
                           child: IconButton(
                             tooltip: 'Voltar',
                             onPressed: () => Navigator.of(context).maybePop(),
-                            style: IconButton.styleFrom(
-                              backgroundColor: Colors.white.withValues(
-                                alpha: 0.12,
-                              ),
-                              foregroundColor: Colors.white,
-                            ),
+                            style: estiloBotaoCabecalho,
                             icon: const Icon(Icons.arrow_back),
                           ),
                         ),
@@ -90,6 +90,7 @@ class CabecalhoPagina extends StatelessWidget {
                           ],
                         ),
                       ),
+                      // No celular as acoes encolhem para o titulo ter espaco.
                       ...acoes,
                     ],
                   ),
@@ -123,11 +124,7 @@ class AcaoCabecalho extends StatelessWidget {
     child: IconButton(
       tooltip: tooltip,
       onPressed: onPressed,
-      style: IconButton.styleFrom(
-        backgroundColor: Colors.white.withValues(alpha: 0.1),
-        foregroundColor: Colors.white,
-        side: BorderSide(color: Paleta.ciano.withValues(alpha: 0.3)),
-      ),
+      style: estiloBotaoCabecalho,
       icon: Icon(icone),
     ),
   );
@@ -146,3 +143,11 @@ class _Bolha extends StatelessWidget {
     decoration: BoxDecoration(shape: BoxShape.circle, color: cor),
   );
 }
+
+/// Botao redondo sobre o degrade escuro: fundo e borda claros o bastante para
+/// o botao nao se perder no fundo, e icone branco.
+final ButtonStyle estiloBotaoCabecalho = IconButton.styleFrom(
+  backgroundColor: Colors.white.withValues(alpha: 0.18),
+  foregroundColor: Colors.white,
+  side: BorderSide(color: Paleta.ciano.withValues(alpha: 0.5)),
+);

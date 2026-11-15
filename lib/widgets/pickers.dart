@@ -90,66 +90,73 @@ class _PickerDialogState<T> extends State<_PickerDialog<T>> {
   String _termo = '';
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text(widget.titulo),
-    content: SizedBox(
-      width: 520,
-      height: 460,
-      child: Column(
-        children: [
-          TextField(
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: widget.dica,
-              prefixIcon: const Icon(Icons.search),
+  Widget build(BuildContext context) {
+    // Cabe em qualquer tela: no celular o dialogo ocupa quase toda a largura e
+    // 70% da altura, em vez dos 520x460 fixos que estouravam.
+    final tela = MediaQuery.sizeOf(context);
+    final largura = (tela.width - 48).clamp(0.0, 520.0);
+    final altura = (tela.height * 0.7).clamp(0.0, 460.0);
+    return AlertDialog(
+      title: Text(widget.titulo),
+      content: SizedBox(
+        width: largura,
+        height: altura,
+        child: Column(
+          children: [
+            TextField(
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: widget.dica,
+                prefixIcon: const Icon(Icons.search),
+              ),
+              onChanged: (value) =>
+                  setState(() => _termo = value.trim().toLowerCase()),
             ),
-            onChanged: (value) =>
-                setState(() => _termo = value.trim().toLowerCase()),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: AsyncView<List<T>>(
-              load: widget.load,
-              isEmpty: (itens) => itens.isEmpty,
-              emptyTitle: 'Lista vazia',
-              emptyMessage: widget.vazio,
-              builder: (context, itens, _) {
-                final filtrados = _termo.isEmpty
-                    ? itens
-                    : itens
-                          .where((item) => widget.combina(item, _termo))
-                          .toList(growable: false);
-                if (filtrados.isEmpty) {
-                  return const EmptyState(
-                    titulo: 'Nenhum resultado',
-                    mensagem: 'Tente outro termo de busca.',
-                    icone: Icons.search_off,
-                  );
-                }
-                return ListView.separated(
-                  itemCount: filtrados.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final item = filtrados[index];
-                    return InkWell(
-                      onTap: () => Navigator.of(context).pop(item),
-                      child: widget.constroi(item),
+            const SizedBox(height: 12),
+            Expanded(
+              child: AsyncView<List<T>>(
+                load: widget.load,
+                isEmpty: (itens) => itens.isEmpty,
+                emptyTitle: 'Lista vazia',
+                emptyMessage: widget.vazio,
+                builder: (context, itens, _) {
+                  final filtrados = _termo.isEmpty
+                      ? itens
+                      : itens
+                            .where((item) => widget.combina(item, _termo))
+                            .toList(growable: false);
+                  if (filtrados.isEmpty) {
+                    return const EmptyState(
+                      titulo: 'Nenhum resultado',
+                      mensagem: 'Tente outro termo de busca.',
+                      icone: Icons.search_off,
                     );
-                  },
-                );
-              },
+                  }
+                  return ListView.separated(
+                    itemCount: filtrados.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final item = filtrados[index];
+                      return InkWell(
+                        onTap: () => Navigator.of(context).pop(item),
+                        child: widget.constroi(item),
+                      );
+                    },
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.of(context).pop(),
-        child: const Text('Cancelar'),
-      ),
-    ],
-  );
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+      ],
+    );
+  }
 }
 
 /// Confirmacao destrutiva (excluir evento / participante).

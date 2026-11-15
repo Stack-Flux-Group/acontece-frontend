@@ -8,7 +8,7 @@
 ![Dart](https://img.shields.io/badge/Dart-3.14-0175C2?logo=dart&logoColor=white)
 ![Plataforma](https://img.shields.io/badge/plataforma-Web-26658C)
 ![Material 3](https://img.shields.io/badge/UI-Material%203-54ACBF)
-![Testes](https://img.shields.io/badge/testes-71%20passando-023859)
+![Testes](https://img.shields.io/badge/testes-138%20passando-023859)
 
 [API em produção](https://acontece-api.onrender.com) ·
 [Documentação da API (Swagger)](https://acontece-api.onrender.com/swagger-ui/index.html) ·
@@ -65,7 +65,8 @@ O site mostra telas diferentes conforme o **papel** de quem está logado.
 Outros comportamentos:
 
 - Sessão persistente: recarregar a página não desloga.
-- Layout responsivo: barra lateral em telas largas e barra inferior no celular.
+- Layout responsivo para celular, tablet, notebook e PC (veja [Layout responsivo](#layout-responsivo)).
+- Cartões de evento sempre do mesmo tamanho, em uma grade que se adapta à largura.
 - Avisos de "acordando o servidor" quando a API demora a responder.
 - Erros da API exibidos com a mensagem original do back-end, incluindo erros por campo nos formulários.
 
@@ -355,19 +356,35 @@ acontece-frontend/
 
 ## Testes
 
-A suíte tem **71 testes**, todos rodando sem acesso à rede:
+A suíte tem **138 testes**, todos rodando sem acesso à rede:
 
 | Arquivo | O que cobre |
 |---|---|
 | `test/validators_test.dart` | Regras espelhadas da API: dígitos verificadores do CPF, CEP, telefone, título, vagas, período do evento, senha de 8 a 72 caracteres |
 | `test/api_test.dart` | Datas sem fuso e com fração de segundo, envelope de erro (incluindo 401/403 sem corpo), modelos, leitura do JWT, sessão, paginação e montagem de URL |
-| `test/app_test.dart` | Telas renderizadas de verdade com um `MockClient` que devolve **respostas reais da API**: login, criar conta, sessão expirada, eventos, inscrição, inscrições e perfil, para cada papel e em tela larga e estreita |
+| `test/app_test.dart` | Telas renderizadas de verdade com um `MockClient` que devolve **respostas reais da API**: login, criar conta, sessão expirada, eventos, inscrição, inscrições e perfil, para cada papel. Inclui o teste de **responsividade**: as telas principais, nos dois papéis, em 4 larguras (celular, tablet, notebook e desktop), falhando em qualquer overflow, e a conferência de que todos os cartões de evento têm o mesmo tamanho |
+| `test/contraste_test.dart` | **Acessibilidade de cores**: calcula o contraste WCAG dos pares usados no site (tema claro e escuro, botões desabilitados, selos, textos sobre os degradês) e exige no mínimo 4,5:1 para texto e 3:1 para ícones e bordas |
 
 ```sh
 flutter test                                        # tudo
 flutter test test/app_test.dart                     # um arquivo
 flutter test --plain-name "participante se inscreve pelo detalhe do evento"
 ```
+
+---
+
+## Layout responsivo
+
+As faixas de largura ficam no enum `Tela`, em [`lib/core/theme.dart`](lib/core/theme.dart). Nenhuma tela compara larguras soltas: todas perguntam a `Tela.of(context)`.
+
+| Faixa | Largura | Navegação | Grade de eventos |
+|---|---|---|---|
+| **Celular** | menos de 600 px | Barra inferior | 1 coluna |
+| **Tablet** | 600 a 899 px | Barra lateral compacta (só ícones) | 2 colunas |
+| **Notebook** | 900 a 1279 px | Barra lateral completa | 2 a 3 colunas |
+| **Desktop** | 1280 px ou mais | Barra lateral completa, conteúdo até 1280 px | 3 a 4 colunas |
+
+A grade calcula as colunas pela largura que sobra ao conteúdo, com no mínimo 300 px por cartão. Todos os cartões têm a mesma altura (`EventoCard.altura`), que cresce junto com o tamanho de fonte do sistema. No celular, os formulários empilham os campos lado a lado, o selo de status das inscrições desce para a própria linha e as ações de participante viram um menu.
 
 ---
 

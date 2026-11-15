@@ -278,6 +278,11 @@ class _Filtros extends StatelessWidget {
               padding: const EdgeInsets.all(6),
               child: IconButton.filled(
                 tooltip: 'Buscar',
+                // Cores explicitas: o icone precisa contrastar com o circulo.
+                style: IconButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Colors.white,
+                ),
                 icon: const Icon(Icons.arrow_forward),
                 onPressed: () => onBuscar(controller.text),
               ),
@@ -321,34 +326,41 @@ class _Filtros extends StatelessWidget {
   );
 }
 
-/// Grade responsiva de cartoes.
+/// Grade responsiva de cartoes, todos com a mesma largura e a mesma altura.
+///
+/// O numero de colunas sai da largura disponivel, com no minimo
+/// [_larguraMinima] por cartao: 1 coluna no celular, 2 no tablet e no notebook
+/// com a barra lateral aberta, 3 e 4 em tela larga. A altura vem de
+/// [EventoCard.altura], e nao do conteudo.
 class _Grade extends StatelessWidget {
   const _Grade({required this.eventos, required this.onAbrir});
 
   final List<Evento> eventos;
   final ValueChanged<Evento> onAbrir;
 
+  static const double _larguraMinima = 300;
+  static const double _espaco = 20;
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final colunas = constraints.maxWidth > 820
-          ? 3
-          : constraints.maxWidth > 540
-          ? 2
-          : 1;
-      const espaco = 20.0;
-      final largura = (constraints.maxWidth - espaco * (colunas - 1)) / colunas;
-
-      return Wrap(
-        spacing: espaco,
-        runSpacing: espaco,
-        children: [
-          for (final evento in eventos)
-            SizedBox(
-              width: largura,
-              child: EventoCard(evento: evento, onTap: () => onAbrir(evento)),
-            ),
-        ],
+    builder: (context, c) {
+      final colunas = ((c.maxWidth + _espaco) / (_larguraMinima + _espaco))
+          .floor()
+          .clamp(1, 4);
+      return GridView.builder(
+        // Dentro de um ListView: a grade nao rola sozinha.
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: EdgeInsets.zero,
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: colunas,
+          mainAxisExtent: EventoCard.altura(context),
+          crossAxisSpacing: _espaco,
+          mainAxisSpacing: _espaco,
+        ),
+        itemCount: eventos.length,
+        itemBuilder: (context, i) =>
+            EventoCard(evento: eventos[i], onTap: () => onAbrir(eventos[i])),
       );
     },
   );

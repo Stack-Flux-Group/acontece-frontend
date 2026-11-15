@@ -97,11 +97,10 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
           acoes: [
             PopupMenuButton<String>(
               tooltip: 'Ordenar',
-              icon: const Icon(Icons.sort),
-              style: IconButton.styleFrom(
-                backgroundColor: Colors.white.withValues(alpha: 0.1),
-                foregroundColor: Colors.white,
-              ),
+              // Cor explicita: sem ela o icone herdaria a cor escura do tema e
+              // sumiria sobre o degrade do cabecalho.
+              icon: const Icon(Icons.sort, color: Colors.white),
+              style: estiloBotaoCabecalho,
               initialValue: _ordem,
               onSelected: (valor) => setState(() {
                 _ordem = valor;
@@ -225,21 +224,50 @@ class _ParticipanteLinha extends StatelessWidget {
           ),
         ],
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            tooltip: 'Editar',
-            onPressed: onEditar,
-            icon: const Icon(Icons.edit_outlined),
-          ),
-          IconButton(
-            tooltip: 'Excluir',
-            onPressed: onExcluir,
-            icon: Icon(Icons.delete_outline, color: scheme.error),
-          ),
-        ],
-      ),
+      // Celular: editar e excluir viram um menu, para nao apertar o nome.
+      trailing: Tela.of(context).ehCelular
+          ? PopupMenuButton<String>(
+              tooltip: 'Ações',
+              onSelected: (valor) =>
+                  valor == 'editar' ? onEditar() : onExcluir(),
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'editar',
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit_outlined, size: 18),
+                      SizedBox(width: 10),
+                      Text('Editar'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'excluir',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline, size: 18, color: scheme.error),
+                      const SizedBox(width: 10),
+                      Text('Excluir', style: TextStyle(color: scheme.error)),
+                    ],
+                  ),
+                ),
+              ],
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: 'Editar',
+                  onPressed: onEditar,
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+                IconButton(
+                  tooltip: 'Excluir',
+                  onPressed: onExcluir,
+                  icon: Icon(Icons.delete_outline, color: scheme.error),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -259,7 +287,13 @@ class _Paginacao extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     mainAxisAlignment: MainAxisAlignment.center,
     children: [
-      IconButton(
+      IconButton.outlined(
+        style: IconButton.styleFrom(
+          disabledForegroundColor: Theme.of(context)
+              .colorScheme
+              .onSurfaceVariant
+              .withValues(alpha: 0.6),
+        ),
         onPressed: onAnterior,
         icon: const Icon(Icons.chevron_left),
         tooltip: 'Página anterior',
@@ -270,7 +304,13 @@ class _Paginacao extends StatelessWidget {
             : 'Página ${pagina.number + 1} de ${pagina.totalPages}',
         style: Theme.of(context).textTheme.bodySmall,
       ),
-      IconButton(
+      IconButton.outlined(
+        style: IconButton.styleFrom(
+          disabledForegroundColor: Theme.of(context)
+              .colorScheme
+              .onSurfaceVariant
+              .withValues(alpha: 0.6),
+        ),
         onPressed: onProxima,
         icon: const Icon(Icons.chevron_right),
         tooltip: 'Próxima página',

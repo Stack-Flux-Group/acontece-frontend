@@ -188,7 +188,6 @@ class _Conteudo extends StatelessWidget {
   Widget build(BuildContext context) {
     final evento = detalhe.evento;
     final texto = Theme.of(context).textTheme;
-    final largo = MediaQuery.sizeOf(context).width >= 980;
 
     final informacoes = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -256,19 +255,24 @@ class _Conteudo extends StatelessWidget {
         _Capa(evento: evento, onVoltar: onVoltar),
         const SizedBox(height: 28),
         ContentWidth(
-          child: largo
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: informacoes),
-                    const SizedBox(width: 28),
-                    SizedBox(width: 340, child: painel),
-                  ],
-                )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [painel, const SizedBox(height: 28), informacoes],
-                ),
+          // Decide pela largura que sobrou ao conteudo (e nao pela da tela):
+          // com a barra lateral aberta, um notebook de 1000 px deixa so ~700 px
+          // para o conteudo, pouco para duas colunas.
+          child: LayoutBuilder(
+            builder: (context, c) => c.maxWidth >= 820
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(child: informacoes),
+                      const SizedBox(width: 28),
+                      SizedBox(width: 340, child: painel),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [painel, const SizedBox(height: 28), informacoes],
+                  ),
+          ),
         ),
       ],
     );
@@ -276,6 +280,10 @@ class _Conteudo extends StatelessWidget {
 }
 
 /// Foto (ou degrade) com o titulo por cima, num veu escuro da paleta.
+///
+/// A altura e um **minimo**: a capa cresce se o titulo e as informacoes
+/// ocuparem mais (titulo de 3 linhas num tablet, por exemplo). Com altura fixa,
+/// o conteudo subia por cima do botao "voltar".
 class _Capa extends StatelessWidget {
   const _Capa({required this.evento, required this.onVoltar});
 
@@ -285,13 +293,24 @@ class _Capa extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final texto = Theme.of(context).textTheme;
-    return SizedBox(
-      height: 300,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          EventoFoto(url: evento.fotoUrl, altura: 300, semente: evento.id),
-          DecoratedBox(
+    final tela = Tela.of(context);
+    final alturaMinima = switch (tela) {
+      Tela.celular => 270.0,
+      Tela.tablet => 290.0,
+      _ => 300.0,
+    };
+    return Stack(
+      children: [
+        // A foto e o veu preenchem a capa, qualquer que seja a altura final.
+        Positioned.fill(
+          child: EventoFoto(
+            url: evento.fotoUrl,
+            altura: alturaMinima,
+            semente: evento.id,
+          ),
+        ),
+        Positioned.fill(
+          child: DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
@@ -303,62 +322,90 @@ class _Capa extends StatelessWidget {
               ),
             ),
           ),
-          SafeArea(
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: IconButton(
-                  tooltip: 'Voltar',
-                  onPressed: onVoltar,
-                  style: IconButton.styleFrom(
-                    backgroundColor: Colors.white.withValues(alpha: 0.15),
-                    foregroundColor: Colors.white,
-                  ),
-                  icon: const Icon(Icons.arrow_back),
-                ),
-              ),
-            ),
+        ),
+        ConstrainedBox(
+          // minWidth infinito: a capa ocupa a largura toda. Sem isso a Stack solta a
+          // largura e o conteudo ficava centralizado, desalinhado do corpo.
+          constraints: BoxConstraints(
+            minHeight: alturaMinima,
+            minWidth: double.infinity,
           ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 28),
-              child: ContentWidth(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    EventoStatusChip(status: evento.status, sobreFoto: true),
-                    const SizedBox(height: 12),
-                    Text(
-                      evento.titulo,
-                      style: texto.headlineMedium?.copyWith(
-                        color: Colors.white,
+          child: SafeArea(
+            bottom: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              // Com a altura minima forcada, o botao fica no topo e o titulo
+              // na base; se o conteudo for maior, a capa so cresce.
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Align(
+                  alignment: Alignment.topLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: IconButton(
+                      tooltip: 'Voltar',
+                      onPressed: onVoltar,
+                      // Fundo escuro: um branco translucido some em foto clara.
+                      style: IconButton.styleFrom(
+                        backgroundColor: Paleta.marinho.withValues(alpha: 0.6),
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: const Icon(Icons.arrow_back),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 16, bottom: 28),
+                  child: ContentWidth(
+                    // Largura toda: o ContentWidth centraliza, e sem isto o
+                    // titulo curto ficava centrado, fora do alinhamento do corpo.
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          EventoStatusChip(
+                            status: evento.status,
+                            sobreFoto: true,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            evento.titulo,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                (tela.ehCelular
+                                        ? texto.headlineSmall
+                                        : texto.headlineMedium)
+                                    ?.copyWith(color: Colors.white),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 18,
+                            runSpacing: 6,
+                            children: [
+                              _InfoCapa(
+                                Icons.schedule,
+                                Fmt.periodo(evento.dataInicio, evento.dataFim),
+                              ),
+                              _InfoCapa(
+                                Icons.place_outlined,
+                                evento.endereco.cidadeUf,
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 18,
-                      runSpacing: 6,
-                      children: [
-                        _InfoCapa(
-                          Icons.schedule,
-                          Fmt.periodo(evento.dataInicio, evento.dataFim),
-                        ),
-                        _InfoCapa(
-                          Icons.place_outlined,
-                          evento.endereco.cidadeUf,
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -375,7 +422,11 @@ class _InfoCapa extends StatelessWidget {
     children: [
       Icon(icone, size: 16, color: Paleta.ciano),
       const SizedBox(width: 6),
-      Text(texto, style: const TextStyle(color: Paleta.ciano)),
+      // Flexible: um periodo longo ("10 de dezembro, 09:00 ate 12 de
+      // dezembro, 23:00") nao cabe numa linha de celular e precisa quebrar.
+      Flexible(
+        child: Text(texto, style: const TextStyle(color: Paleta.ciano)),
+      ),
     ],
   );
 }
@@ -436,7 +487,7 @@ class _PainelOrganizador extends StatelessWidget {
             value: fracao,
             minHeight: 10,
             backgroundColor: scheme.surfaceContainerHighest,
-            color: lotado ? scheme.error : Paleta.turquesa,
+            color: lotado ? scheme.error : scheme.primary,
           ),
         ),
         const SizedBox(height: 8),
@@ -511,7 +562,10 @@ class _PainelParticipante extends StatelessWidget {
           const SizedBox(height: 14),
           Align(
             alignment: Alignment.centerLeft,
-            child: StatusInscricaoChip(status: inscricao.status),
+            child: StatusInscricaoChip(
+              status: inscricao.status,
+              sobreEscuro: true,
+            ),
           ),
           const SizedBox(height: 12),
           Text(
@@ -523,9 +577,7 @@ class _PainelParticipante extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             'Inscrição feita em ${Fmt.dataHora(inscricao.dataInscricao)}',
-            style: texto.bodySmall?.copyWith(
-              color: Colors.white.withValues(alpha: 0.7),
-            ),
+            style: texto.bodySmall?.copyWith(color: Paleta.ciano),
           ),
         ],
       );
@@ -665,7 +717,7 @@ class _Bloco extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SizedBox(
-                    width: 100,
+                    width: Tela.of(context).ehCelular ? 84 : 100,
                     child: Text(
                       linha.rotulo,
                       style: texto.bodyMedium?.copyWith(

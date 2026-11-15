@@ -60,6 +60,23 @@ class Fmt {
         '${_diaMes.format(fim)}, ${hora(fim)}';
   }
 
+  /// Periodo compacto, para cartoes: cabe em uma linha.
+  ///
+  /// Mesmo dia: "04/12 · 17:06 às 19:00". Dias diferentes:
+  /// "01/11 17:00 até 10/11 17:00".
+  static String periodoCurto(DateTime inicio, DateTime fim) {
+    final dia = DateFormat('dd/MM');
+    final mesmoDia =
+        inicio.year == fim.year &&
+        inicio.month == fim.month &&
+        inicio.day == fim.day;
+    if (mesmoDia) {
+      return '${dia.format(inicio)} · ${hora(inicio)} às ${hora(fim)}';
+    }
+    return '${dia.format(inicio)} ${hora(inicio)} até '
+        '${dia.format(fim)} ${hora(fim)}';
+  }
+
   /// `52998224725` -> `529.982.247-25`. Deixa como esta se nao tiver 11 digitos.
   static String cpf(String value) {
     final d = Validators.digits(value);

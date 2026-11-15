@@ -27,8 +27,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final largura = MediaQuery.sizeOf(context).width;
-    final larga = largura >= AppTheme.compactBreakpoint;
+    final tela = Tela.of(context);
+    // Vitrine ao lado do formulario so de notebook para cima. No tablet e no
+    // celular o formulario vem num cartao sobre o degrade.
+    final larga = tela.ehLarga;
 
     final formulario = AnimatedSwitcher(
       duration: const Duration(milliseconds: 220),
@@ -71,7 +73,7 @@ class _LoginScreenState extends State<LoginScreen> {
         child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
+              padding: EdgeInsets.all(tela.margem),
               child: Column(
                 children: [
                   const LogoAcontece(tamanho: 40, corTexto: Colors.white),
@@ -86,7 +88,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     constraints: const BoxConstraints(maxWidth: 460),
                     child: Card(
                       child: Padding(
-                        padding: const EdgeInsets.all(24),
+                        padding: EdgeInsets.all(tela.ehCelular ? 20 : 32),
                         child: formulario,
                       ),
                     ),
@@ -128,53 +130,64 @@ class _Vitrine extends StatelessWidget {
             right: 60,
             child: _Circulo(90, Paleta.ciano.withValues(alpha: 0.16)),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(56, 48, 56, 48),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const LogoAcontece(tamanho: 44, corTexto: Colors.white),
-                const Spacer(),
-                Text(
-                  'Eventos que fazem\na cidade acontecer.',
-                  style: texto.displaySmall?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    height: 1.15,
-                    letterSpacing: -1,
+          // Rola em janela baixa (notebook pequeno) em vez de estourar.
+          LayoutBuilder(
+            builder: (context, c) => SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(56, 48, 56, 48),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: c.maxHeight - 96),
+                child: IntrinsicHeight(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const LogoAcontece(tamanho: 44, corTexto: Colors.white),
+                      const Spacer(),
+                      Text(
+                        'Eventos que fazem\na cidade acontecer.',
+                        style: texto.displaySmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          height: 1.15,
+                          letterSpacing: -1,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 460),
+                        child: Text(
+                          'Descubra o que está rolando, garanta sua vaga em poucos '
+                          'cliques e acompanhe suas inscrições em um só lugar.',
+                          style: texto.titleMedium?.copyWith(
+                            color: Paleta.ciano,
+                            fontWeight: FontWeight.w400,
+                            height: 1.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 36),
+                      const Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: [
+                          _Destaque(Icons.event_available, 'Agenda de eventos'),
+                          _Destaque(Icons.how_to_reg, 'Inscrição rápida'),
+                          _Destaque(
+                            Icons.verified_outlined,
+                            'Vagas garantidas',
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      Text(
+                        '© Acontece',
+                        style: texto.bodySmall?.copyWith(
+                          color: Colors.white.withValues(alpha: 0.75),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 20),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 460),
-                  child: Text(
-                    'Descubra o que está rolando, garanta sua vaga em poucos '
-                    'cliques e acompanhe suas inscrições em um só lugar.',
-                    style: texto.titleMedium?.copyWith(
-                      color: Paleta.ciano,
-                      fontWeight: FontWeight.w400,
-                      height: 1.5,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 36),
-                const Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    _Destaque(Icons.event_available, 'Agenda de eventos'),
-                    _Destaque(Icons.how_to_reg, 'Inscrição rápida'),
-                    _Destaque(Icons.verified_outlined, 'Vagas garantidas'),
-                  ],
-                ),
-                const Spacer(),
-                Text(
-                  '© Acontece',
-                  style: texto.bodySmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.5),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ],

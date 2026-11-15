@@ -290,9 +290,16 @@ class _Filtros extends StatelessWidget {
         selected: selecionado,
         onSelected: (_) => onTap(),
         showCheckmark: false,
-        selectedColor: Paleta.ciano,
-        backgroundColor: Colors.white.withValues(alpha: 0.1),
-        side: BorderSide(color: Paleta.ciano.withValues(alpha: 0.35)),
+        // `color` (e nao `backgroundColor`): no Material 3 o fundo do chip vem
+        // de `color`, e um fundo translucido aqui era ignorado, deixando texto
+        // branco sobre chip branco. Cores solidas, para nao depender do que
+        // esta atras.
+        color: WidgetStateProperty.resolveWith(
+          (estados) => estados.contains(WidgetState.selected)
+              ? Paleta.ciano
+              : Paleta.petroleo,
+        ),
+        side: const BorderSide(color: Paleta.ciano),
         labelStyle: TextStyle(
           color: selecionado ? Paleta.marinho : Colors.white,
           fontWeight: FontWeight.w600,
@@ -374,6 +381,38 @@ class _InscricaoCartao extends StatelessWidget {
         ? inscricao.eventoTitulo
         : 'Inscrição nº ${inscricao.id}';
 
+    final celular = Tela.of(context).ehCelular;
+    final selo = StatusInscricaoChip(status: inscricao.status);
+    final Widget? menu = proximos.isNotEmpty
+        ? PopupMenuButton<StatusInscricao>(
+            tooltip: 'Alterar status',
+            icon: const Icon(Icons.more_vert),
+            onSelected: onMudarStatus,
+            itemBuilder: (_) => [
+              for (final destino in proximos)
+                PopupMenuItem(
+                  value: destino,
+                  child: Row(
+                    children: [
+                      Icon(
+                        destino == StatusInscricao.confirmada
+                            ? Icons.check_circle_outline
+                            : Icons.cancel_outlined,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        destino == StatusInscricao.confirmada
+                            ? 'Confirmar'
+                            : 'Cancelar',
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          )
+        : (organizador && !celular ? const SizedBox(width: 48) : null);
+
     return Card(
       child: InkWell(
         onTap: onAbrir,
@@ -426,41 +465,14 @@ class _InscricaoCartao extends StatelessWidget {
                                 color: scheme.onSurfaceVariant,
                               ),
                             ),
+                            // Celular: o selo desce para sua propria linha em
+                            // vez de disputar espaco com o nome.
+                            if (celular) ...[const SizedBox(height: 8), selo],
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      StatusInscricaoChip(status: inscricao.status),
-                      if (proximos.isNotEmpty)
-                        PopupMenuButton<StatusInscricao>(
-                          tooltip: 'Alterar status',
-                          icon: const Icon(Icons.more_vert),
-                          onSelected: onMudarStatus,
-                          itemBuilder: (_) => [
-                            for (final destino in proximos)
-                              PopupMenuItem(
-                                value: destino,
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      destino == StatusInscricao.confirmada
-                                          ? Icons.check_circle_outline
-                                          : Icons.cancel_outlined,
-                                      size: 18,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Text(
-                                      destino == StatusInscricao.confirmada
-                                          ? 'Confirmar'
-                                          : 'Cancelar',
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        )
-                      else if (organizador)
-                        const SizedBox(width: 48),
+                      if (!celular) ...[const SizedBox(width: 12), selo],
+                      ?menu,
                     ],
                   ),
                 ),
@@ -491,6 +503,12 @@ class _Paginacao extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         IconButton.outlined(
+          style: IconButton.styleFrom(
+            disabledForegroundColor: Theme.of(context)
+                .colorScheme
+                .onSurfaceVariant
+                .withValues(alpha: 0.6),
+          ),
           tooltip: 'Página anterior',
           onPressed: onAnterior,
           icon: const Icon(Icons.chevron_left),
@@ -503,6 +521,12 @@ class _Paginacao extends StatelessWidget {
           ),
         ),
         IconButton.outlined(
+          style: IconButton.styleFrom(
+            disabledForegroundColor: Theme.of(context)
+                .colorScheme
+                .onSurfaceVariant
+                .withValues(alpha: 0.6),
+          ),
           tooltip: 'Próxima página',
           onPressed: onProxima,
           icon: const Icon(Icons.chevron_right),

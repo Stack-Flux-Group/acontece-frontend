@@ -6,11 +6,28 @@ import '../models/evento.dart';
 import 'status_chip.dart';
 
 /// Cartao de evento na listagem.
+///
+/// **Altura fixa.** Todos os cartoes ocupam exatamente a mesma celula da grade
+/// ([EventoCard.altura]), qualquer que seja o conteudo: o titulo reserva duas
+/// linhas, a descricao reserva duas linhas (vazia, se nao houver) e o rodape
+/// "Ver detalhes" fica sempre colado na base. Sem isso as fileiras da grade
+/// ficavam desalinhadas.
 class EventoCard extends StatefulWidget {
   const EventoCard({super.key, required this.evento, required this.onTap});
 
   final Evento evento;
   final VoidCallback onTap;
+
+  /// Altura da foto no topo do cartao.
+  static const double alturaFoto = 150;
+
+  /// Altura total do cartao. Cresce com o tamanho de fonte do sistema, para
+  /// que texto ampliado nao seja cortado.
+  static double altura(BuildContext context) {
+    const fixo = 210.0; // foto, espacamentos, divisor
+    const texto = 170.0; // titulo, informacoes, descricao e rodape
+    return fixo + texto * MediaQuery.textScalerOf(context).scale(1);
+  }
 
   @override
   State<EventoCard> createState() => _EventoCardState();
@@ -25,9 +42,21 @@ class _EventoCardState extends State<EventoCard> {
     final texto = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
 
+    // Duas linhas de titulo, sempre reservadas, para os cartoes de titulo curto
+    // nao ficarem com a base mais alta que os de titulo longo.
+    final estiloTitulo = texto.titleMedium?.copyWith(
+      fontWeight: FontWeight.w700,
+    );
+    final alturaTitulo =
+        MediaQuery.textScalerOf(context).scale(
+          (estiloTitulo?.fontSize ?? 16) * (estiloTitulo?.height ?? 1.5),
+        ) *
+        2;
+
     return MouseRegion(
       onEnter: (_) => setState(() => _sobre = true),
       onExit: (_) => setState(() => _sobre = false),
+      cursor: SystemMouseCursors.click,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         transform: Matrix4.translationValues(0, _sobre ? -4 : 0, 0),
@@ -51,7 +80,7 @@ class _EventoCardState extends State<EventoCard> {
                   children: [
                     EventoFoto(
                       url: evento.fotoUrl,
-                      altura: 150,
+                      altura: EventoCard.alturaFoto,
                       semente: evento.id,
                     ),
                     Positioned(
@@ -69,46 +98,72 @@ class _EventoCardState extends State<EventoCard> {
                     ),
                   ],
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        evento.titulo,
-                        style: texto.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(
+                          height: alturaTitulo,
+                          child: Text(
+                            evento.titulo,
+                            style: estiloTitulo,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 10),
-                      _Linha(
-                        icone: Icons.schedule,
-                        texto: Fmt.periodo(evento.dataInicio, evento.dataFim),
-                      ),
-                      const SizedBox(height: 4),
-                      _Linha(
-                        icone: Icons.place_outlined,
-                        texto: evento.endereco.cidadeUf,
-                      ),
-                      const SizedBox(height: 4),
-                      _Linha(
-                        icone: Icons.people_alt_outlined,
-                        texto: Fmt.vagas(evento.vagas),
-                      ),
-                      if (evento.descricao.trim().isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        _Linha(
+                          icone: Icons.schedule,
+                          texto: Fmt.periodoCurto(
+                            evento.dataInicio,
+                            evento.dataFim,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        _Linha(
+                          icone: Icons.place_outlined,
+                          texto: evento.endereco.cidadeUf,
+                        ),
+                        const SizedBox(height: 4),
+                        _Linha(
+                          icone: Icons.people_alt_outlined,
+                          texto: Fmt.vagas(evento.vagas),
+                        ),
                         const SizedBox(height: 10),
                         Text(
-                          evento.descricao,
+                          evento.descricao.trim(),
                           style: texto.bodySmall?.copyWith(
                             color: scheme.onSurfaceVariant,
                           ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
+                        const Spacer(),
+                        Divider(color: scheme.outlineVariant),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Ver detalhes',
+                                style: texto.labelLarge?.copyWith(
+                                  color: scheme.primary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Icon(
+                                Icons.arrow_forward,
+                                size: 18,
+                                color: scheme.primary,
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ],

@@ -8,6 +8,7 @@ import '../../core/validators.dart';
 import '../../models/evento.dart';
 import '../../services.dart';
 import '../../widgets/error_banner.dart';
+import '../../widgets/par_responsivo.dart';
 
 /// Criacao e edicao de evento.
 ///
@@ -213,24 +214,17 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                     const SizedBox(height: 20),
 
                     _Secao('Quando'),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _CampoDataHora(
-                            rotulo: 'Início *',
-                            valor: _inicio,
-                            onPressed: () => _escolherDataHora(inicio: true),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _CampoDataHora(
-                            rotulo: 'Fim *',
-                            valor: _fim,
-                            onPressed: () => _escolherDataHora(inicio: false),
-                          ),
-                        ),
-                      ],
+                    ParResponsivo(
+                      esquerda: _CampoDataHora(
+                        rotulo: 'Início *',
+                        valor: _inicio,
+                        onPressed: () => _escolherDataHora(inicio: true),
+                      ),
+                      direita: _CampoDataHora(
+                        rotulo: 'Fim *',
+                        valor: _fim,
+                        onPressed: () => _escolherDataHora(inicio: false),
+                      ),
                     ),
                     const SizedBox(height: 6),
                     _Nota(
@@ -240,32 +234,24 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                     const SizedBox(height: 20),
 
                     _Secao('Onde'),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          flex: 2,
-                          child: TextFormField(
-                            controller: _cep,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(
-                              labelText: 'CEP *',
-                              hintText: '85601-000',
-                            ),
-                            validator: Validators.cep,
-                          ),
+                    ParResponsivo(
+                      flexEsquerda: 2,
+                      esquerda: TextFormField(
+                        controller: _cep,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'CEP *',
+                          hintText: '85601-000',
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _numero,
-                            decoration: const InputDecoration(
-                              labelText: 'Número',
-                              hintText: '123',
-                            ),
-                          ),
+                        validator: Validators.cep,
+                      ),
+                      direita: TextFormField(
+                        controller: _numero,
+                        decoration: const InputDecoration(
+                          labelText: 'Número',
+                          hintText: '123',
                         ),
-                      ],
+                      ),
                     ),
                     const SizedBox(height: 6),
                     _Nota(
@@ -308,35 +294,32 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                     ],
 
                     const SizedBox(height: 28),
-                    Row(
-                      children: [
-                        FilledButton.icon(
-                          onPressed: _salvando ? null : _salvar,
-                          icon: _salvando
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.save_outlined),
-                          label: Text(
-                            _salvando
-                                ? 'Salvando...'
-                                : widget.editando
-                                ? 'Salvar alterações'
-                                : 'Criar evento',
-                          ),
+                    AcoesFormulario(
+                      principal: FilledButton.icon(
+                        onPressed: _salvando ? null : _salvar,
+                        icon: _salvando
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.save_outlined),
+                        label: Text(
+                          _salvando
+                              ? 'Salvando...'
+                              : widget.editando
+                              ? 'Salvar alterações'
+                              : 'Criar evento',
                         ),
-                        const SizedBox(width: 12),
-                        TextButton(
-                          onPressed: _salvando
-                              ? null
-                              : () => Navigator.of(context).pop(false),
-                          child: const Text('Cancelar'),
-                        ),
-                      ],
+                      ),
+                      secundario: TextButton(
+                        onPressed: _salvando
+                            ? null
+                            : () => Navigator.of(context).pop(false),
+                        child: const Text('Cancelar'),
+                      ),
                     ),
                   ],
                 ),
