@@ -1,6 +1,14 @@
+// =============================================================================
+// evento_repository.dart - REPOSITORIO DE EVENTOS
+// =============================================================================
+
+// Cliente HTTP (unico ponto de rede do app).
 import '../core/api_client.dart';
+// ApiDates.format: datas sem fuso nas query strings.
 import '../core/api_dates.dart';
+// ApiException.badPayload: resposta em formato inesperado.
 import '../core/api_exception.dart';
+// Evento (leitura) e EventoInput (envio).
 import '../models/evento.dart';
 
 /// Acesso as rotas de evento.
@@ -20,10 +28,12 @@ class EventoRepository {
   /// cargo do cliente.
   Future<List<Evento>> listar() async {
     final data = await _client.get('/evento/listar/');
+    // Converte o JSON (lista de objetos) em lista de Evento.
     return _lista(data);
   }
 
   /// `GET /evento/buscar/{id}`
+  /// (`$id` dentro do texto insere o valor da variavel.)
   Future<Evento> buscarPorId(int id) async {
     final data = await _client.get('/evento/buscar/$id');
     return Evento.fromJson(_objeto(data));
@@ -36,6 +46,7 @@ class EventoRepository {
   Future<List<Evento>> buscarPorTitulo(String titulo) async {
     final data = await _client.get(
       '/evento/buscar/titulo',
+      // `query` vira "?titulo=..." (com codificacao de caracteres especiais).
       query: {'titulo': titulo},
     );
     return _lista(data);
@@ -55,6 +66,7 @@ class EventoRepository {
   }) async {
     final data = await _client.get(
       '/evento/buscar/periodo',
+      // Datas no formato sem fuso exigido pela API.
       query: {'inicio': ApiDates.format(inicio), 'fim': ApiDates.format(fim)},
     );
     return _lista(data);
@@ -70,6 +82,7 @@ class EventoRepository {
   /// back-end: pode demorar, e um CEP com formato valido mas inexistente volta
   /// como 400.
   Future<Evento> criar(EventoInput input) async {
+    // `input.toJson()` monta o corpo; a resposta e o evento ja criado.
     final data = await _client.post('/evento/criar', body: input.toJson());
     return Evento.fromJson(_objeto(data));
   }
@@ -93,14 +106,20 @@ class EventoRepository {
   /// estrangeira derruba a operacao e a API responde 409.
   Future<void> deletar(int id) => _client.delete('/evento/deletar/$id');
 
+  /// Converte a resposta (que deve ser uma lista JSON) em `List<Evento>`.
   List<Evento> _lista(dynamic data) {
+    // Se nao for lista, a API respondeu algo inesperado.
     if (data is! List) throw ApiException.badPayload('/evento');
     return data
+        // Descarta qualquer item que nao seja objeto JSON.
         .whereType<Map>()
+        // Converte cada objeto em Evento.
         .map((e) => Evento.fromJson(e.cast<String, dynamic>()))
+        // Lista de tamanho fixo (imutavel).
         .toList(growable: false);
   }
 
+  /// Garante que a resposta e um objeto JSON e ajusta o tipo.
   Map<String, dynamic> _objeto(dynamic data) {
     if (data is! Map) throw ApiException.badPayload('/evento');
     return data.cast<String, dynamic>();

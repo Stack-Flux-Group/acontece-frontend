@@ -1,3 +1,16 @@
+// =============================================================================
+// participante_form_screen.dart - FORMULARIO DE PARTICIPANTE
+// =============================================================================
+//
+// Usado em dois contextos:
+//   * Organizador cadastrando/editando qualquer participante.
+//   * Participante editando o proprio cadastro (a partir de "Meu perfil").
+//
+// Diferenca importante:
+//   criar  -> POST  com TODOS os campos (inclusive senha)
+//   editar -> PATCH so com o que MUDOU (ParticipantePatch.diff); senha nao existe
+// =============================================================================
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/api_exception.dart';
@@ -23,6 +36,7 @@ class ParticipanteFormScreen extends StatefulWidget {
   /// `null` para cadastrar; preenchido para editar.
   final Participante? participante;
 
+  /// Atalho: estamos editando?
   bool get editando => participante != null;
 
   @override
@@ -30,12 +44,16 @@ class ParticipanteFormScreen extends StatefulWidget {
 }
 
 class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
+  /// Chave do formulario, usada para validar todos os campos de uma vez.
   final _form = GlobalKey<FormState>();
 
+  // `late final`: atribuidos no initState (precisam de `widget`).
   late final TextEditingController _nome;
   late final TextEditingController _email;
   late final TextEditingController _cpf;
   late final TextEditingController _telefone;
+
+  /// A senha nao depende de `widget`, entao pode ser criada na declaracao.
   final _senha = TextEditingController();
   bool _mostrarSenha = false;
 
@@ -46,6 +64,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
   void initState() {
     super.initState();
     final p = widget.participante;
+    // Preenche com os dados atuais (com mascara de CPF/telefone) ou vazio.
     _nome = TextEditingController(text: p?.nome ?? '');
     _email = TextEditingController(text: p?.email ?? '');
     _cpf = TextEditingController(text: p == null ? '' : Fmt.cpf(p.cpf));
@@ -56,6 +75,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
 
   @override
   void dispose() {
+    // Todo controller criado precisa ser liberado.
     _nome.dispose();
     _email.dispose();
     _cpf.dispose();
@@ -70,15 +90,19 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
   /// mais util do que so no banner no topo.
   String? _erroDoCampo(String campo) => _erro?.forField(campo);
 
+  /// Valida e envia: PATCH (editando) ou POST (criando).
   Future<void> _salvar() async {
     setState(() => _erro = null);
+    // Para aqui se algum campo for invalido (os erros aparecem nos campos).
     if (!(_form.currentState?.validate() ?? false)) return;
 
     setState(() => _salvando = true);
+    // Captura o repositorio antes de qualquer `await`.
     final repo = Services.of(context).participantes;
 
     try {
       if (widget.editando) {
+        // Compara o formulario com o registro atual e monta so o que mudou.
         final patch = ParticipantePatch.diff(
           atual: widget.participante!,
           nome: _nome.text,
@@ -86,9 +110,11 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
           cpf: _cpf.text,
           telefone: _telefone.text,
         );
+        // Nada mudou: nao chama a API.
         if (patch.isEmpty) {
           if (!mounted) return;
           mostrarSucesso(context, 'Nada foi alterado.');
+          // `false` = nada mudou, a lista nao precisa recarregar.
           Navigator.of(context).pop(false);
           return;
         }
@@ -108,6 +134,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
         if (!mounted) return;
         mostrarSucesso(context, '${criado.nome} cadastrado(a).');
       }
+      // Salvou: avisa a tela anterior para recarregar.
       Navigator.of(context).pop(true);
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -121,6 +148,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
   @override
   Widget build(BuildContext context) {
     final erro = _erro;
+    // So digitos do telefone original (para decidir se mostra a dica de remover).
     final telefoneOriginal = Validators.digits(
       widget.participante?.telefone ?? '',
     );
@@ -131,11 +159,13 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
           widget.editando ? 'Editar participante' : 'Novo participante',
         ),
       ),
+      // AbsorbPointer: enquanto salva, engole toques/cliques (evita duplo envio).
       body: AbsorbPointer(
         absorbing: _salvando,
         child: ListView(
           padding: const EdgeInsets.only(bottom: 48),
           children: [
+            // Largura maxima de 640 para o formulario nao esticar demais.
             ContentWidth(
               maxWidth: 640,
               child: Form(
@@ -144,19 +174,25 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 16),
+                    // Banner de erro no topo, se houver.
                     if (erro != null) ...[
                       ErrorBanner(error: erro),
                       const SizedBox(height: 16),
                     ],
 
+                    // TextFormField = campo de texto com suporte a validacao.
                     TextFormField(
                       controller: _nome,
+                      // Limite de 120 caracteres (com contador na tela).
                       maxLength: 120,
+                      // Cada palavra comeca em maiuscula.
                       textCapitalization: TextCapitalization.words,
                       decoration: InputDecoration(
                         labelText: 'Nome *',
+                        // Erro do servidor, mostrado junto do campo.
                         errorText: _erroDoCampo('nome'),
                       ),
+                      // Funcao que devolve null (ok) ou a mensagem de erro.
                       validator: Validators.nome,
                     ),
                     const SizedBox(height: 12),
@@ -167,6 +203,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
                       decoration: InputDecoration(
                         labelText: 'E-mail *',
                         errorText: _erroDoCampo('email'),
+                        // Texto de ajuda fixo, abaixo do campo.
                         helperText: 'Precisa ser único entre os participantes',
                       ),
                       validator: Validators.email,
@@ -178,6 +215,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
                         labelText: 'CPF *',
+                        // Texto cinza de exemplo, some quando a pessoa digita.
                         hintText: '000.000.000-00',
                         errorText: _erroDoCampo('cpf'),
                         helperText:
@@ -189,6 +227,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
 
                     TextFormField(
                       controller: _telefone,
+                      // Teclado de telefone em dispositivos moveis.
                       keyboardType: TextInputType.phone,
                       decoration: InputDecoration(
                         labelText: 'Telefone',
@@ -205,6 +244,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _senha,
+                        // `obscureText` esconde os caracteres (bolinhas).
                         obscureText: !_mostrarSenha,
                         decoration: InputDecoration(
                           labelText: 'Senha de acesso *',
@@ -212,6 +252,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
                               'Entre 8 e 72 caracteres. É com ela que o '
                               'participante vai entrar no site',
                           errorText: _erroDoCampo('senha'),
+                          // Botao "olhinho" para mostrar/ocultar a senha.
                           suffixIcon: IconButton(
                             tooltip: _mostrarSenha
                                 ? 'Ocultar senha'
@@ -229,6 +270,7 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
                       ),
                     ],
 
+                    // Dica: so aparece ao editar quem ja tem telefone.
                     if (widget.editando && telefoneOriginal.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Text(
@@ -242,7 +284,9 @@ class _ParticipanteFormScreenState extends State<ParticipanteFormScreen> {
                     const SizedBox(height: 28),
                     AcoesFormulario(
                       principal: FilledButton.icon(
+                        // `null` desabilita o botao enquanto salva.
                         onPressed: _salvando ? null : _salvar,
+                        // Spinner pequeno enquanto salva; icone normal depois.
                         icon: _salvando
                             ? const SizedBox(
                                 width: 18,

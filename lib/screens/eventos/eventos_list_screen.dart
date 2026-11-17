@@ -1,3 +1,16 @@
+// =============================================================================
+// eventos_list_screen.dart - ABA "EVENTOS" (catalogo em grade)
+// =============================================================================
+//
+// Mostra os eventos em uma grade de cartoes, com busca por titulo e filtro por
+// periodo. O organizador tambem ve o botao de criar evento.
+//
+// Padrao central desta tela (repetido nas outras listas):
+//   1. `_chave` junta filtros + `_versao`; muda => AsyncView recarrega sozinho.
+//   2. Depois de criar/editar/excluir, `_versao++` forca nova busca.
+//   3. As telas empilhadas devolvem `true` no `pop` quando "algo mudou".
+// =============================================================================
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/api_dates.dart';
@@ -21,6 +34,7 @@ import 'evento_form_screen.dart';
 class EventosListScreen extends StatefulWidget {
   const EventosListScreen({super.key, required this.usuario});
 
+  /// Usuario logado (define o que a tela oferece).
   final UsuarioLogado usuario;
 
   @override
@@ -35,41 +49,58 @@ class EventosListScreen extends StatefulWidget {
 enum _Modo { todos, titulo, periodo }
 
 class _EventosListScreenState extends State<EventosListScreen> {
+  /// CONCEITO - TextEditingController: guarda/controla o texto de um TextField
+  /// (ler, limpar). Precisa ser liberado no `dispose`.
   final _buscaController = TextEditingController();
 
+  /// Modo atual (todos / por titulo / por periodo).
   _Modo _modo = _Modo.todos;
+
+  /// Titulo buscado.
   String _titulo = '';
+
+  /// Periodo escolhido (`DateTimeRange` = inicio + fim).
   DateTimeRange? _periodo;
 
   /// Incrementado depois de criar/editar/excluir para forcar nova busca.
   int _versao = 0;
 
+  /// Atalho: o usuario e organizador?
   bool get _organizador => widget.usuario.ehOrganizador;
 
   /// Muda sempre que o filtro ou a versao muda, fazendo o [AsyncView] recarregar.
+  /// (`${...}` interpola; `.name` e o nome textual do enum.)
   String get _chave =>
       '${_modo.name}|$_titulo|${_periodo?.start}|${_periodo?.end}|$_versao';
 
   @override
   void dispose() {
+    // Libera o controller para evitar vazamento de memoria.
     _buscaController.dispose();
     super.dispose();
   }
 
+  /// Carrega a lista usando a rota certa para o modo atual.
+  /// Chamada pelo AsyncView (`load: _carregar`). Aqui `Services.of(context)`
+  /// funciona porque roda depois do primeiro build, nao em `initState`.
   Future<List<Evento>> _carregar() {
     final repo = Services.of(context).eventos;
+    // `switch` como expressao: devolve o Future da rota escolhida.
     return switch (_modo) {
       _Modo.todos => repo.listar(),
       _Modo.titulo => repo.buscarPorTitulo(_titulo),
       _Modo.periodo => repo.buscarPorPeriodo(
+        // `!` afirma nao-nulo: no modo periodo ele sempre existe.
         inicio: _periodo!.start,
         fim: _periodo!.end,
       ),
     };
   }
 
+  /// Aplica a busca por titulo (texto vazio volta ao modo "todos").
   void _buscarPorTitulo(String valor) {
     final texto = valor.trim();
+    // `setState`: altera o estado e pede um novo `build`.
     setState(() {
       _titulo = texto;
       _modo = texto.isEmpty ? _Modo.todos : _Modo.titulo;
@@ -77,10 +108,14 @@ class _EventosListScreenState extends State<EventosListScreen> {
     });
   }
 
+  /// Abre o seletor de intervalo de datas e aplica o filtro.
   Future<void> _escolherPeriodo() async {
     final agora = ApiDates.nowInSaoPaulo();
+    // `showDateRangePicker` abre o calendario de intervalo; devolve null se o
+    // usuario cancelar.
     final faixa = await showDateRangePicker(
       context: context,
+      // Aceita datas de 5 anos atras ate 5 anos a frente.
       firstDate: DateTime(agora.year - 5),
       lastDate: DateTime(agora.year + 5),
       initialDateRange: _periodo,
@@ -107,6 +142,7 @@ class _EventosListScreenState extends State<EventosListScreen> {
     });
   }
 
+  /// Volta ao modo "todos", limpando busca e periodo.
   void _limparFiltros() {
     setState(() {
       _modo = _Modo.todos;
@@ -116,13 +152,18 @@ class _EventosListScreenState extends State<EventosListScreen> {
     });
   }
 
+  /// Abre o formulario de novo evento; se foi criado (`true`), recarrega.
   Future<void> _criar() async {
+    // CONCEITO - Navigator.push: empilha uma tela. `push<bool>` espera um
+    // `bool` de volta quando a tela empilhada der `pop(valor)`.
     final criado = await Navigator.of(
       context,
     ).push<bool>(MaterialPageRoute(builder: (_) => const EventoFormScreen()));
+    // `mounted`: depois de um `await` o widget pode ja ter saido da tela.
     if (criado == true && mounted) setState(() => _versao++);
   }
 
+  /// Abre o detalhe do evento; se algo mudou la dentro, recarrega a lista.
   Future<void> _abrir(Evento evento) async {
     final mudou = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -137,6 +178,7 @@ class _EventosListScreenState extends State<EventosListScreen> {
   Widget build(BuildContext context) => Scaffold(
     body: Column(
       children: [
+        // Faixa de topo com titulo, acoes e a barra de busca no rodape.
         CabecalhoPagina(
           titulo: _organizador ? 'Eventos' : 'Descubra eventos',
           subtitulo: _organizador
@@ -148,20 +190,24 @@ class _EventosListScreenState extends State<EventosListScreen> {
               tooltip: 'Filtrar por período',
               onPressed: _escolherPeriodo,
             ),
+            // So aparece no celular (menu com "Sair").
             ContaBotao(usuario: widget.usuario),
           ],
           rodape: _Filtros(
             controller: _buscaController,
             periodo: _periodo,
             onBuscar: _buscarPorTitulo,
+            // `null` esconde o botao "Limpar filtros" quando nao ha filtro.
             onLimpar: _modo == _Modo.todos ? null : _limparFiltros,
           ),
         ),
+        // O resto da tela e a lista carregada pelo AsyncView.
         Expanded(
           child: AsyncView<List<Evento>>(
             reloadKey: _chave,
             load: _carregar,
             isEmpty: (eventos) => eventos.isEmpty,
+            // Textos do estado vazio mudam conforme haja filtro/papel.
             emptyTitle: _modo == _Modo.todos
                 ? 'Nenhum evento cadastrado'
                 : 'Nenhum evento encontrado',
@@ -187,17 +233,23 @@ class _EventosListScreenState extends State<EventosListScreen> {
               // `GET /evento/listar/` devolve a tabela na ordem do banco;
               // ordenar aqui deixa a lista previsivel. Para o participante, os
               // eventos ainda abertos vem antes dos encerrados.
+              // `[...eventos]` copia a lista (spread) para poder ordenar sem
+              // alterar a original; `..sort` (cascata) ordena e devolve a lista.
               final ordenados = [...eventos]
                 ..sort((a, b) {
+                  // Participante: encerrados vao para o fim.
                   if (!_organizador && a.encerrado != b.encerrado) {
                     return a.encerrado ? 1 : -1;
                   }
+                  // Demais casos: mais cedo primeiro.
                   return a.dataInicio.compareTo(b.dataInicio);
                 });
 
+              // RefreshIndicator: "puxar para recarregar".
               return RefreshIndicator(
                 onRefresh: recarregar,
                 child: ListView(
+                  // Folga embaixo para o FAB nao cobrir o ultimo cartao.
                   padding: const EdgeInsets.only(bottom: 96),
                   children: [
                     ContentWidth(
@@ -205,6 +257,7 @@ class _EventosListScreenState extends State<EventosListScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const SizedBox(height: 20),
+                          // Contador com singular/plural.
                           Text(
                             ordenados.length == 1
                                 ? '1 evento'
@@ -232,6 +285,7 @@ class _EventosListScreenState extends State<EventosListScreen> {
     // As abas vivem ao mesmo tempo dentro de um IndexedStack, entao os FABs
     // coexistem. Sem uma heroTag propria em cada um, o Hero reclama de tag
     // duplicada e a navegacao quebra.
+    // (FAB = FloatingActionButton, o botao redondo/flutuante de acao.)
     floatingActionButton: _organizador
         ? FloatingActionButton.extended(
             heroTag: 'fab-eventos',
@@ -243,6 +297,7 @@ class _EventosListScreenState extends State<EventosListScreen> {
   );
 }
 
+/// Campo de busca + chips dos filtros ativos, mostrados no cabecalho.
 class _Filtros extends StatelessWidget {
   const _Filtros({
     required this.controller,
@@ -253,27 +308,36 @@ class _Filtros extends StatelessWidget {
 
   final TextEditingController controller;
   final DateTimeRange? periodo;
+
+  /// Chamado com o texto digitado (Enter ou botao).
   final ValueChanged<String> onBuscar;
+
+  /// `null` = nao ha filtro para limpar.
   final VoidCallback? onLimpar;
 
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
+      // Limita a largura do campo de busca a 560 px.
       ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 560),
         child: TextField(
           controller: controller,
+          // Tecla "Enter" do teclado vira "buscar".
           textInputAction: TextInputAction.search,
           onSubmitted: onBuscar,
           decoration: InputDecoration(
             hintText: 'Buscar por título',
             prefixIcon: const Icon(Icons.search),
+            // Fundo branco para o campo se destacar do degrade escuro.
             fillColor: Colors.white,
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
+              // Sem linha de borda: so o fundo branco arredondado.
               borderSide: BorderSide.none,
             ),
+            // Botao redondo "->" dentro do campo.
             suffixIcon: Padding(
               padding: const EdgeInsets.all(6),
               child: IconButton.filled(
@@ -290,6 +354,7 @@ class _Filtros extends StatelessWidget {
           ),
         ),
       ),
+      // So mostra a linha de chips se ha periodo ou algo a limpar.
       if (periodo != null || onLimpar != null) ...[
         const SizedBox(height: 12),
         Wrap(
@@ -298,6 +363,7 @@ class _Filtros extends StatelessWidget {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             if (periodo != null)
+              // Chip: etiqueta com icone e texto.
               Chip(
                 backgroundColor: Paleta.ciano,
                 side: BorderSide.none,
@@ -338,20 +404,30 @@ class _Grade extends StatelessWidget {
   final List<Evento> eventos;
   final ValueChanged<Evento> onAbrir;
 
+  /// Largura minima desejada por cartao e espaco entre eles.
   static const double _larguraMinima = 300;
   static const double _espaco = 20;
 
   @override
+  // CONCEITO - LayoutBuilder: da acesso as RESTRICOES de tamanho do pai
+  // (`c.maxWidth`), isto e, a largura que sobra ao conteudo (e nao a da janela,
+  // pois a barra lateral ocupa 88/248 px).
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, c) {
+      // Quantas colunas cabem; `.floor()` arredonda para baixo; `.clamp(1, 4)`
+      // limita entre 1 e 4.
       final colunas = ((c.maxWidth + _espaco) / (_larguraMinima + _espaco))
           .floor()
           .clamp(1, 4);
+      // GridView.builder: grade que cria os itens sob demanda.
       return GridView.builder(
         // Dentro de um ListView: a grade nao rola sozinha.
+        // `shrinkWrap` = ocupa so a altura necessaria.
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         padding: EdgeInsets.zero,
+        // Numero FIXO de colunas e altura fixa por celula (nao usar
+        // maxCrossAxisExtent; ver CLAUDE.md).
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: colunas,
           mainAxisExtent: EventoCard.altura(context),

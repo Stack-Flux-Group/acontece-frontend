@@ -1,3 +1,11 @@
+// =============================================================================
+// perfil_screen.dart - ABA "MEU PERFIL" (participante)
+// =============================================================================
+//
+// O participante ve o proprio cadastro, edita os dados, sai da conta ou exclui
+// a conta. Reaproveita o ParticipanteFormScreen para a edicao.
+// =============================================================================
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/api_exception.dart';
@@ -28,12 +36,16 @@ class PerfilScreen extends StatefulWidget {
 }
 
 class _PerfilScreenState extends State<PerfilScreen> {
+  /// Incrementado apos editar, para recarregar os dados.
   int _versao = 0;
 
+  /// Busca o proprio cadastro (id vem do usuario logado/token).
   Future<Participante> _carregar() =>
       Services.of(context).participantes.buscarPorId(widget.usuario.id);
 
+  /// Abre o formulario de edicao; se salvou, recarrega.
   Future<void> _editar(Participante participante) async {
+    // `push<bool>` empilha a tela e espera o `bool` devolvido no `pop`.
     final salvou = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => ParticipanteFormScreen(participante: participante),
@@ -42,6 +54,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
     if (salvou == true && mounted) setState(() => _versao++);
   }
 
+  /// Exclui a propria conta (apos confirmar) e encerra a sessao.
   Future<void> _excluirConta(Participante participante) async {
     final confirmado = await confirmar(
       context,
@@ -51,12 +64,15 @@ class _PerfilScreenState extends State<PerfilScreen> {
           'inscrições em eventos, a API vai recusar a exclusão.',
       rotuloConfirmar: 'Excluir conta',
     );
+    // Cancelou (ou a tela foi fechada): nada a fazer.
     if (!confirmado || !mounted) return;
 
+    // Guarda o Services antes do `await`.
     final services = Services.of(context);
     try {
       await services.participantes.excluir(participante.id);
       // O token continuaria valido ate expirar, mas apontaria para ninguem.
+      // `sair(aviso: ...)` volta ao login explicando o motivo.
       services.sessao.sair(aviso: 'Sua conta foi excluída.');
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -80,6 +96,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
             builder: (context, participante, _) => ListView(
               padding: const EdgeInsets.only(bottom: 48),
               children: [
+                // Largura maxima de 720 para o conteudo nao esticar demais.
                 ContentWidth(
                   maxWidth: 720,
                   child: Column(
@@ -88,6 +105,8 @@ class _PerfilScreenState extends State<PerfilScreen> {
                       const SizedBox(height: 24),
                       _CartaoPerfil(participante: participante),
                       const SizedBox(height: 20),
+                      // Wrap: os botoes ficam lado a lado e quebram de linha
+                      // se faltar espaco.
                       Wrap(
                         spacing: 12,
                         runSpacing: 12,
@@ -98,6 +117,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
                             label: const Text('Editar dados'),
                           ),
                           OutlinedButton.icon(
+                            // Encerra a sessao; o main.dart volta ao login.
                             onPressed: () => Services.of(context).sessao.sair(),
                             icon: const Icon(Icons.logout),
                             label: const Text('Sair'),
@@ -120,6 +140,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
   );
 }
 
+/// Cartao com avatar, nome e linhas de dados (e-mail, CPF, telefone).
 class _CartaoPerfil extends StatelessWidget {
   const _CartaoPerfil({required this.participante});
 
@@ -133,6 +154,7 @@ class _CartaoPerfil extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Faixa superior em degrade com avatar e nome.
           Container(
             padding: const EdgeInsets.all(24),
             decoration: const BoxDecoration(gradient: Paleta.degradeVivo),
@@ -143,6 +165,7 @@ class _CartaoPerfil extends StatelessWidget {
                   backgroundColor: Paleta.ciano,
                   foregroundColor: Paleta.marinho,
                   child: Text(
+                    // Primeira letra do nome em maiuscula; "?" se vazio.
                     participante.nome.isEmpty
                         ? '?'
                         : participante.nome[0].toUpperCase(),
@@ -172,6 +195,7 @@ class _CartaoPerfil extends StatelessWidget {
               ],
             ),
           ),
+          // Dados do cadastro.
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
             child: Column(
@@ -181,6 +205,7 @@ class _CartaoPerfil extends StatelessWidget {
                 _Linha(
                   Icons.phone_outlined,
                   'Telefone',
+                  // Telefone e opcional: mostra "Não informado" se faltar.
                   telefone == null || telefone.isEmpty
                       ? 'Não informado'
                       : Fmt.telefone(telefone),
@@ -194,7 +219,9 @@ class _CartaoPerfil extends StatelessWidget {
   }
 }
 
+/// Linha "icone + rotulo + valor" do cartao de perfil.
 class _Linha extends StatelessWidget {
+  /// Tres parametros posicionais: icone, rotulo e valor.
   const _Linha(this.icone, this.rotulo, this.valor);
 
   final IconData icone;
@@ -210,6 +237,7 @@ class _Linha extends StatelessWidget {
         children: [
           Icon(icone, size: 20, color: scheme.primary),
           const SizedBox(width: 14),
+          // Largura fixa para alinhar os valores em coluna.
           SizedBox(
             width: 90,
             child: Text(
@@ -229,6 +257,7 @@ class _Linha extends StatelessWidget {
   }
 }
 
+/// Caixa de borda vermelha com a acao destrutiva "Excluir minha conta".
 class _ZonaDePerigo extends StatelessWidget {
   const _ZonaDePerigo({required this.onExcluir});
 

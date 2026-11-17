@@ -1,3 +1,25 @@
+// =============================================================================
+// api_test.dart - TESTES UNITARIOS DA CAMADA DE DADOS (sem telas)
+// =============================================================================
+//
+// Cobre, sem desenhar nenhum widget:
+//   * ApiDates          -> leitura/escrita de datas sem fuso
+//   * ApiException      -> traducao do envelope de erro da API
+//   * ApiClient.resolve -> montagem de URL e query string
+//   * modelos           -> fromJson / toJson (Evento, Participante, Inscricao...)
+//   * ParticipantePatch -> "so envia o que mudou"
+//   * StatusInscricao   -> maquina de estados
+//   * PagedModel        -> paginacao
+//   * auth              -> JWT, UsuarioLogado, LoginInput
+//
+// Os JSONs de exemplo foram copiados de respostas REAIS da API.
+//
+// Matchers novos usados aqui (alem de isTrue/isNull):
+//   hasLength(n), isEmpty, isNotEmpty, contains(x), endsWith(x),
+//   throwsA(isA<Tipo>()) -> espera que a funcao LANCE uma excecao do tipo.
+// =============================================================================
+
+// jsonEncode/jsonDecode/base64Url/utf8: montar um JWT de teste.
 import 'dart:convert';
 
 import 'package:acontece_frontend/core/api_client.dart';
@@ -33,6 +55,7 @@ void main() {
     test('nao desloca fuso: o valor lido e hora de parede', () {
       // Sem sufixo Z/offset, o horario precisa sair igual ao que entrou,
       // independente do fuso da maquina que roda o teste.
+      // Ida e volta: parse -> format deve devolver o mesmo texto.
       const texto = '2026-12-04T17:06:44';
       expect(ApiDates.format(ApiDates.parse(texto)), texto);
     });
@@ -40,6 +63,7 @@ void main() {
     test(
       'serializa sem fuso e sem milissegundos, como o LocalDateTime espera',
       () {
+        // Ultimo argumento (123) = milissegundos, que devem ser descartados.
         final valor = DateTime(2026, 12, 1, 19, 30, 5, 123);
         expect(ApiDates.format(valor), '2026-12-01T19:30:05');
       },
@@ -48,6 +72,7 @@ void main() {
     test('tryParse devolve null para ausente ou invalido', () {
       expect(ApiDates.tryParse(null), isNull);
       expect(ApiDates.tryParse(''), isNull);
+      // Nao-texto (numero) tambem vira null.
       expect(ApiDates.tryParse(42), isNull);
       expect(ApiDates.tryParse('nao e data'), isNull);
     });
@@ -56,6 +81,7 @@ void main() {
   group('ApiException', () {
     test('le o envelope de validacao com fieldErrors', () {
       // Corpo real de POST /participantes com dados invalidos.
+      // (Textos literais vizinhos sao concatenados pelo Dart.)
       const corpo =
           '{"timestamp":"2026-11-15T00:18:44.540205442Z","status":400,'
           '"error":"Bad Request","message":"Dados inválidos na requisição",'
@@ -68,6 +94,7 @@ void main() {
       expect(erro.status, 400);
       expect(erro.message, 'Dados inválidos na requisição');
       expect(erro.path, '/participantes');
+      // `hasLength(3)`: a colecao tem exatamente 3 itens.
       expect(erro.fieldErrors, hasLength(3));
       expect(erro.forField('cpf'), 'CPF inválido');
       expect(erro.forField('telefone'), isNull);
@@ -103,6 +130,7 @@ void main() {
       // O filtro de seguranca do Spring responde 401/403 com corpo vazio
       // quando o token falta, venceu ou o papel nao permite a rota.
       final semToken = ApiException.fromResponse(401, '', '/evento/listar/');
+      // `contains`: o texto contem o trecho informado.
       expect(semToken.message, contains('sessão expirou'));
 
       final semPapel = ApiException.fromResponse(403, '', '/participantes');
@@ -145,9 +173,11 @@ void main() {
         'status': 'CONFIRMADA',
         'page': 0,
       });
+      // Numeros viram texto na query string.
       expect(uri.queryParameters['eventoId'], '2');
       expect(uri.queryParameters['status'], 'CONFIRMADA');
       expect(uri.queryParameters['page'], '0');
+      // A chave nula nem aparece.
       expect(uri.queryParameters.containsKey('participanteId'), isFalse);
     });
 
@@ -161,6 +191,7 @@ void main() {
 
     test('nao cria query quando nao ha parametros', () {
       expect(ApiClient.resolve('/evento/listar/').hasQuery, isFalse);
+      // Mapa so com valores nulos tambem nao gera "?".
       expect(
         ApiClient.resolve('/evento/listar/', {'x': null}).hasQuery,
         isFalse,
@@ -170,6 +201,7 @@ void main() {
 
   group('modelos', () {
     test('Evento le a resposta real da API', () {
+      // `const {...}`: Map literal constante, copiado de uma resposta real.
       final evento = Evento.fromJson(const {
         'id': 1,
         'titulo': 'Radar Tech',
@@ -271,6 +303,7 @@ void main() {
   });
 
   group('ParticipantePatch', () {
+    // Registro "atual" compartilhado pelos testes do grupo.
     final atual = Participante.fromJson(const {
       'id': 1,
       'nome': 'Maria Silva',
@@ -280,6 +313,7 @@ void main() {
     });
 
     test('envia somente o que mudou', () {
+      // Mesmos dados (so com mascara): nada mudou.
       final patch = ParticipantePatch.diff(
         atual: atual,
         nome: 'Maria Silva',
@@ -300,6 +334,7 @@ void main() {
         telefone: '46999887766',
       );
       final json = patch.toJson();
+      // Comparar com um Map literal verifica chaves E valores.
       expect(json, {'nome': 'Maria Souza'});
       expect(json.containsKey('telefone'), isFalse);
     });
@@ -346,6 +381,8 @@ void main() {
       );
       expect(StatusInscricao.fromWire('CANCELADA'), StatusInscricao.cancelada);
       expect(StatusInscricao.confirmada.wire, 'CONFIRMADA');
+      // Para testar que algo LANCA excecao, passa-se uma FUNCAO (`() => ...`)
+      // ao `expect`, e o matcher `throwsA` confere o tipo do erro.
       expect(
         () => StatusInscricao.fromWire('OUTRO'),
         throwsA(isA<ArgumentError>()),
@@ -353,6 +390,7 @@ void main() {
     });
 
     test('reproduz a maquina de estados do back-end', () {
+      // Comparar Sets ignora a ordem dos elementos.
       expect(StatusInscricao.pendente.proximos, {
         StatusInscricao.confirmada,
         StatusInscricao.cancelada,
@@ -377,6 +415,7 @@ void main() {
 
   group('PagedModel', () {
     test('le o formato do Spring Data', () {
+      // Passa `Participante.fromJson` como funcao conversora dos itens.
       final pagina = PagedModel.fromJson(const {
         'content': [
           {
@@ -410,6 +449,7 @@ void main() {
     });
 
     test('calcula a faixa de uma pagina do meio', () {
+      // `List<int>.filled(20, 0)` = lista de 20 zeros (so para ter 20 itens).
       final pagina = PagedModel<int>(
         content: List<int>.filled(20, 0),
         size: 20,
@@ -450,7 +490,9 @@ void main() {
   group('auth', () {
     // JWT real no formato que o TokenService gera (HS256), com sub, exp,
     // email e papel. A assinatura nao importa: o cliente nao confere.
+    // Funcao auxiliar local: monta "cabecalho.payload.assinatura".
     String jwt(Map<String, dynamic> claims) {
+      // Converte objeto -> JSON -> bytes -> Base64 URL, sem o preenchimento `=`.
       String parte(Object json) =>
           base64Url.encode(utf8.encode(jsonEncode(json))).replaceAll('=', '');
       return '${parte({'alg': 'HS256'})}.${parte(claims)}.assinatura';
@@ -476,6 +518,7 @@ void main() {
             'sub': '7',
             'email': 'maria@exemplo.com',
             'papel': 'PARTICIPANTE',
+            // `exp` em SEGUNDOS desde 1970 (epoch).
             'exp': 1800000000,
           }),
           expiraEmSegundos: 7200,
@@ -489,6 +532,7 @@ void main() {
     });
 
     test('considera vencido o token no fim da validade', () {
+      // `DateTime.utc` cria um instante em UTC (o `exp` do JWT e um instante real).
       final agora = DateTime.utc(2026, 11, 15, 12);
       final usuario = UsuarioLogado(
         token: 'x',
@@ -497,7 +541,9 @@ void main() {
         email: 'a@b.com',
         expiraEm: agora.add(const Duration(minutes: 1)),
       );
+      // Faltando 1 min (> margem de 15 s): ainda vale.
       expect(usuario.expiradoEm(agora), isFalse);
+      // Chegou ao fim da validade: vencido.
       expect(usuario.expiradoEm(agora.add(const Duration(minutes: 1))), isTrue);
     });
 
@@ -509,6 +555,7 @@ void main() {
         email: 'org@acontece.com',
         expiraEm: DateTime.utc(2027),
       );
+      // Objeto -> Map -> texto JSON -> Map -> objeto (o que o localStorage faz).
       final lido = UsuarioLogado.fromJson(
         jsonDecode(jsonEncode(original.toJson())) as Map<String, dynamic>,
       );
@@ -520,6 +567,7 @@ void main() {
     test('LoginInput normaliza o e-mail como o AuthService', () {
       expect(
         const LoginInput(email: '  Org@Acontece.COM ', senha: ' s ').toJson(),
+        // A senha NAO e alterada (espacos preservados).
         {'email': 'org@acontece.com', 'senha': ' s '},
       );
     });

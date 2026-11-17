@@ -1,6 +1,11 @@
+// =============================================================================
+// inscricao_repository.dart - REPOSITORIO DE INSCRICOES
+// =============================================================================
+
 import '../core/api_client.dart';
 import '../core/api_exception.dart';
 import '../models/inscricao.dart';
+// Resposta paginada (conteudo + numero de paginas).
 import '../models/paged_model.dart';
 import '../models/status_inscricao.dart';
 
@@ -49,6 +54,8 @@ class InscricaoRepository {
   ///
   /// Filtros opcionais e combinaveis: cada um que vier nulo e simplesmente
   /// ignorado pela consulta. Default do back-end: `size=20`, `sort=id`.
+  ///
+  /// Parametros nomeados com valor padrao (`page = 0`) sao opcionais.
   Future<PagedModel<Inscricao>> listar({
     int? eventoId,
     int? participanteId,
@@ -59,9 +66,11 @@ class InscricaoRepository {
   }) async {
     final data = await _client.get(
       '/inscricoes',
+      // Valores nulos sao descartados pelo ApiClient.resolve (filtro nao usado).
       query: {
         'eventoId': eventoId,
         'participanteId': participanteId,
+        // `status?.wire`: se status for nulo, o resultado e nulo (sem erro).
         'status': status?.wire,
         'page': page,
         'size': size,
@@ -69,6 +78,8 @@ class InscricaoRepository {
       },
     );
     if (data is! Map) throw ApiException.badPayload('/inscricoes');
+    // Passa `Inscricao.fromJson` como funcao conversora de cada item
+    // (referencia a funcao, sem parenteses).
     return PagedModel.fromJson(
       data.cast<String, dynamic>(),
       Inscricao.fromJson,
@@ -83,8 +94,11 @@ class InscricaoRepository {
   /// **So faz sentido para o organizador.** Para o participante a API trava a
   /// listagem nas inscricoes dele, entao o numero seria o dele, nao o do evento.
   Future<int> contarAtivasDoEvento(int eventoId) async {
+    // Acumulador do total. `var` = variavel que pode mudar.
     var total = 0;
+    // Percorre so os status que ocupam vaga (pendente e confirmada).
     for (final status in StatusInscricao.values.where((s) => s.ocupaVaga)) {
+      // Pede uma pagina de 1 item apenas para ler o total.
       final pagina = await listar(eventoId: eventoId, status: status, size: 1);
       total += pagina.totalElements;
     }
@@ -98,9 +112,11 @@ class InscricaoRepository {
   /// pelo id do token. A API permite so uma ativa por participante e evento.
   Future<Inscricao?> minhaAtivaNoEvento(int eventoId) async {
     final pagina = await listar(eventoId: eventoId, size: 50);
+    // Devolve a primeira inscricao que ocupa vaga (nao cancelada).
     for (final inscricao in pagina.content) {
       if (inscricao.status.ocupaVaga) return inscricao;
     }
+    // Nenhuma ativa encontrada.
     return null;
   }
 
@@ -112,11 +128,14 @@ class InscricaoRepository {
   Future<Inscricao> atualizarStatus(int id, StatusInscricao status) async {
     final data = await _client.patch(
       '/inscricoes/$id/status',
+      // O corpo e so o novo status, no texto que a API espera (`wire`).
       body: <String, dynamic>{'status': status.wire},
     );
     return Inscricao.fromJson(_objeto(data, '/inscricoes/$id/status'));
   }
 
+  /// Garante que a resposta e um objeto JSON; [path] so identifica a rota na
+  /// mensagem de erro.
   Map<String, dynamic> _objeto(dynamic data, String path) {
     if (data is! Map) throw ApiException.badPayload(path);
     return data.cast<String, dynamic>();

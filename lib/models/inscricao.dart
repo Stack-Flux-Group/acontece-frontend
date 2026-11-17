@@ -1,4 +1,10 @@
+// =============================================================================
+// inscricao.dart - MODELOS DE INSCRICAO (leitura e criacao)
+// =============================================================================
+
+// Leitura de datas no formato da API.
 import '../core/api_dates.dart';
+// Enum com os status possiveis.
 import 'status_inscricao.dart';
 
 /// Espelha `InscricaoResponse`.
@@ -21,15 +27,22 @@ class Inscricao {
   final String participanteNome;
   final int eventoId;
   final String eventoTitulo;
+
+  /// PENDENTE, CONFIRMADA ou CANCELADA.
   final StatusInscricao status;
+
+  /// Quando a inscricao foi feita (sem fuso, horario de Brasilia).
   final DateTime dataInscricao;
 
+  /// Constroi a partir do JSON da API. `(x as num).toInt()` aceita numero
+  /// inteiro ou decimal; `?? ''` troca nulo por texto vazio.
   factory Inscricao.fromJson(Map<String, dynamic> json) => Inscricao(
     id: (json['id'] as num).toInt(),
     participanteId: (json['participanteId'] as num).toInt(),
     participanteNome: (json['participanteNome'] ?? '').toString(),
     eventoId: (json['eventoId'] as num).toInt(),
     eventoTitulo: (json['eventoTitulo'] ?? '').toString(),
+    // Texto da API ("PENDENTE") -> valor do enum.
     status: StatusInscricao.fromWire((json['status'] ?? '').toString()),
     dataInscricao: ApiDates.parse(json['dataInscricao'] as String),
   );
@@ -44,7 +57,9 @@ class Inscricao {
 class InscricaoInput {
   const InscricaoInput({required this.eventoId});
 
+  /// Evento em que o participante quer se inscrever.
   final int eventoId;
 
+  /// Vira o JSON `{"eventoId": 1}` que a API espera.
   Map<String, dynamic> toJson() => <String, dynamic>{'eventoId': eventoId};
 }

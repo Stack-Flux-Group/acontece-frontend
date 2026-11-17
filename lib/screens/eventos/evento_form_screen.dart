@@ -1,3 +1,16 @@
+// =============================================================================
+// evento_form_screen.dart - FORMULARIO DE CRIAR / EDITAR EVENTO
+// =============================================================================
+//
+// Tela empilhada (aberta com Navigator.push). Ao terminar, devolve via `pop`:
+//   * true  -> salvou (a lista deve recarregar)
+//   * false -> cancelou
+// So o organizador chega aqui.
+//
+// CONCEITO - Form + GlobalKey<FormState>: o `Form` agrupa campos; a chave
+// permite chamar `validate()` para rodar o `validator` de TODOS os campos.
+// =============================================================================
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/api_dates.dart';
@@ -27,6 +40,7 @@ class EventoFormScreen extends StatefulWidget {
   /// `null` para criar; preenchido para editar.
   final Evento? evento;
 
+  /// Atalho: estamos editando?
   bool get editando => evento != null;
 
   @override
@@ -34,8 +48,11 @@ class EventoFormScreen extends StatefulWidget {
 }
 
 class _EventoFormScreenState extends State<EventoFormScreen> {
+  /// Chave do formulario, usada para validar todos os campos de uma vez.
   final _form = GlobalKey<FormState>();
 
+  // Um controller por campo de texto. `late final`: so recebem valor no
+  // `initState` (nao da para usar `widget` na declaracao).
   late final TextEditingController _titulo;
   late final TextEditingController _descricao;
   late final TextEditingController _vagas;
@@ -43,20 +60,27 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
   late final TextEditingController _numero;
   late final TextEditingController _fotoUrl;
 
+  /// Datas escolhidas nos seletores (nao sao campos de texto).
   DateTime? _inicio;
   DateTime? _fim;
 
+  /// `true` enquanto a requisicao de salvar esta em andamento.
   bool _salvando = false;
+
+  /// Ultimo erro da API (mostrado no topo do formulario).
   ApiException? _erro;
 
   @override
   void initState() {
     super.initState();
+    // Na edicao, preenche cada campo com o valor atual; na criacao, vazio.
+    // `evento?.titulo ?? ''`: se evento for nulo, usa ''.
     final evento = widget.evento;
     _titulo = TextEditingController(text: evento?.titulo ?? '');
     _descricao = TextEditingController(text: evento?.descricao ?? '');
     _vagas = TextEditingController(text: evento?.vagas.toString() ?? '');
     _cep = TextEditingController(
+      // Mostra o CEP com mascara (85601-000).
       text: evento == null ? '' : Fmt.cep(evento.endereco.cep),
     );
     _numero = TextEditingController(text: evento?.endereco.numero ?? '');
@@ -67,6 +91,7 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
 
   @override
   void dispose() {
+    // Todo controller criado precisa ser liberado.
     _titulo.dispose();
     _descricao.dispose();
     _vagas.dispose();
@@ -76,12 +101,16 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
     super.dispose();
   }
 
+  /// Escolhe data e depois hora; [inicio] diz qual das duas datas editar.
   Future<void> _escolherDataHora({required bool inicio}) async {
+    // Valor de partida do seletor: a data atual do campo, senao o inicio,
+    // senao "amanha" (em horario de Sao Paulo).
     final atual =
         (inicio ? _inicio : _fim) ??
         _inicio ??
         ApiDates.nowInSaoPaulo().add(const Duration(days: 1));
 
+    // Calendario; devolve null se cancelar.
     final data = await showDatePicker(
       context: context,
       initialDate: atual,
@@ -89,8 +118,10 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
       lastDate: DateTime(2100),
       helpText: inicio ? 'Data de início' : 'Data de fim',
     );
+    // `mounted`: apos um `await`, confirma que a tela ainda existe.
     if (data == null || !mounted) return;
 
+    // Relogio; devolve null se cancelar.
     final hora = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(hour: atual.hour, minute: atual.minute),
@@ -98,6 +129,7 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
     );
     if (!mounted) return;
 
+    // Junta a data escolhida com a hora (ou mantem a hora anterior se cancelou).
     final escolhido = DateTime(
       data.year,
       data.month,
@@ -119,32 +151,42 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
     });
   }
 
+  /// Valida, monta o corpo e envia (POST se criando, PUT se editando).
   Future<void> _salvar() async {
+    // Limpa o erro anterior.
     setState(() => _erro = null);
 
+    // `validate()` roda todos os `validator`; `?.`/`?? false` tratam estado nulo.
     final formOk = _form.currentState?.validate() ?? false;
+    // Regra de datas (nao e um campo de texto, entao validamos a parte).
     final erroPeriodo = Validators.periodoEvento(_inicio, _fim);
     if (!formOk || erroPeriodo != null) {
       if (erroPeriodo != null) {
         setState(() => _erro = ApiException(message: erroPeriodo));
       }
+      // Interrompe: nada e enviado se houver erro.
       return;
     }
 
+    // Monta o objeto de envio a partir dos campos.
     final input = EventoInput(
       titulo: _titulo.text.trim(),
       descricao: _descricao.text.trim(),
+      // `!` seguro: `periodoEvento` ja garantiu que nao sao nulos.
       dataInicio: _inicio!,
       dataFim: _fim!,
+      // Texto -> numero inteiro (o validador ja garantiu que e valido).
       vagas: int.parse(_vagas.text.trim()),
       cep: _cep.text.trim(),
       numero: _numero.text.trim(),
       fotoUrl: _fotoUrl.text.trim(),
     );
 
+    // Bloqueia o formulario e mostra "Salvando...".
     setState(() => _salvando = true);
     try {
       final repo = Services.of(context).eventos;
+      // Editando => PUT; criando => POST. Ambos devolvem o Evento salvo.
       final evento = widget.editando
           ? await repo.atualizar(widget.evento!.id, input)
           : await repo.criar(input);
@@ -155,8 +197,10 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
             ? 'Evento atualizado.'
             : 'Evento "${evento.titulo}" criado.',
       );
+      // Fecha a tela devolvendo `true` ("algo mudou").
       Navigator.of(context).pop(true);
     } on ApiException catch (e) {
+      // Falha: mostra o erro e libera o formulario para tentar de novo.
       if (!mounted) return;
       setState(() {
         _erro = e;
@@ -172,11 +216,13 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
       appBar: AppBar(
         title: Text(widget.editando ? 'Editar evento' : 'Novo evento'),
       ),
+      // AbsorbPointer: enquanto salva, engole toques/cliques (evita duplo envio).
       body: AbsorbPointer(
         absorbing: _salvando,
         child: ListView(
           padding: const EdgeInsets.only(bottom: 48),
           children: [
+            // Largura maxima de 720 para o formulario nao esticar demais.
             ContentWidth(
               maxWidth: 720,
               child: Form(
@@ -185,35 +231,43 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const SizedBox(height: 16),
+                    // Banner de erro no topo, se houver.
                     if (erro != null) ...[
                       ErrorBanner(error: erro),
                       const SizedBox(height: 16),
                     ],
 
+                    // TextFormField = TextField com suporte a validacao.
                     TextFormField(
                       controller: _titulo,
+                      // Limite de 100 caracteres (com contador na tela).
                       maxLength: 100,
+                      // Primeira letra de cada frase em maiuscula.
                       textCapitalization: TextCapitalization.sentences,
                       decoration: const InputDecoration(
                         labelText: 'Título *',
                         helperText: 'Até 100 caracteres',
                       ),
+                      // Funcao que devolve null (ok) ou a mensagem de erro.
                       validator: Validators.tituloEvento,
                     ),
                     const SizedBox(height: 12),
 
                     TextFormField(
                       controller: _descricao,
+                      // Campo de texto com 4 linhas de altura.
                       maxLines: 4,
                       textCapitalization: TextCapitalization.sentences,
                       decoration: const InputDecoration(
                         labelText: 'Descrição',
+                        // Mantem o rotulo no topo, ja que o campo e alto.
                         alignLabelWithHint: true,
                       ),
                     ),
                     const SizedBox(height: 20),
 
                     _Secao('Quando'),
+                    // Inicio e fim lado a lado (empilhados no celular).
                     ParResponsivo(
                       esquerda: _CampoDataHora(
                         rotulo: 'Início *',
@@ -234,6 +288,7 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                     const SizedBox(height: 20),
 
                     _Secao('Onde'),
+                    // CEP ocupa 2/3 da linha; numero, 1/3.
                     ParResponsivo(
                       flexEsquerda: 2,
                       esquerda: TextFormField(
@@ -264,6 +319,7 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                     _Secao('Vagas e imagem'),
                     TextFormField(
                       controller: _vagas,
+                      // Teclado numerico em dispositivos moveis.
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(
                         labelText: 'Vagas *',
@@ -274,6 +330,7 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _fotoUrl,
+                      // Teclado otimizado para digitar enderecos de site.
                       keyboardType: TextInputType.url,
                       decoration: const InputDecoration(
                         labelText: 'URL da foto',
@@ -284,6 +341,7 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                       validator: Validators.fotoUrl,
                     ),
 
+                    // Aviso extra so na edicao.
                     if (widget.editando) ...[
                       const SizedBox(height: 16),
                       _Nota(
@@ -296,7 +354,9 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
                     const SizedBox(height: 28),
                     AcoesFormulario(
                       principal: FilledButton.icon(
+                        // `null` desabilita o botao enquanto salva.
                         onPressed: _salvando ? null : _salvar,
+                        // Spinner pequeno enquanto salva; icone normal depois.
                         icon: _salvando
                             ? const SizedBox(
                                 width: 18,
@@ -332,6 +392,7 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
   }
 }
 
+/// Campo "clicavel" que mostra data+hora e abre os seletores ao tocar.
 class _CampoDataHora extends StatelessWidget {
   const _CampoDataHora({
     required this.rotulo,
@@ -340,6 +401,8 @@ class _CampoDataHora extends StatelessWidget {
   });
 
   final String rotulo;
+
+  /// Data atual do campo (nula = ainda nao escolhida).
   final DateTime? valor;
   final VoidCallback onPressed;
 
@@ -347,6 +410,8 @@ class _CampoDataHora extends StatelessWidget {
   Widget build(BuildContext context) => InkWell(
     onTap: onPressed,
     borderRadius: BorderRadius.circular(4),
+    // InputDecorator: desenha a moldura/rotulo de um campo sem ser um
+    // TextField (aqui o "conteudo" e um Text).
     child: InputDecorator(
       decoration: InputDecoration(
         labelText: rotulo,
@@ -355,6 +420,7 @@ class _CampoDataHora extends StatelessWidget {
       child: Text(
         valor == null ? 'Escolher data e hora' : Fmt.dataHora(valor!),
         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+          // Texto de dica em cinza; valor escolhido na cor normal (null).
           color: valor == null
               ? Theme.of(context).colorScheme.onSurfaceVariant
               : null,
@@ -364,6 +430,7 @@ class _CampoDataHora extends StatelessWidget {
   );
 }
 
+/// Titulo de secao do formulario ("QUANDO", "ONDE"...).
 class _Secao extends StatelessWidget {
   const _Secao(this.titulo);
 
@@ -373,6 +440,7 @@ class _Secao extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 12),
     child: Text(
+      // Converte o texto para MAIUSCULAS.
       titulo.toUpperCase(),
       style: Theme.of(context).textTheme.labelSmall?.copyWith(
         color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -383,6 +451,7 @@ class _Secao extends StatelessWidget {
   );
 }
 
+/// Texto pequeno de orientacao abaixo de um grupo de campos.
 class _Nota extends StatelessWidget {
   const _Nota(this.texto);
 

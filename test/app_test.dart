@@ -1,3 +1,27 @@
+// =============================================================================
+// app_test.dart - TESTES DE INTERFACE (widget tests) DO APP INTEIRO
+// =============================================================================
+//
+// CONCEITO - widget test: monta o app de verdade (telas reais), mas dentro do
+// ambiente de teste do Flutter, sem navegador. Em vez de clicar com o mouse, o
+// teste usa o `WidgetTester` para "tocar" e "digitar", e depois confere o que
+// apareceu na tela.
+//
+// CONCEITO - cliente HTTP falso (MockClient): a rede NAO e usada. Cada pedido
+// recebe uma resposta pronta (copiada de respostas reais da API). Assim o teste
+// e rapido, repetivel e nao depende de internet.
+//
+// Ferramentas do `WidgetTester` usadas aqui:
+//   * pumpWidget(w)      monta o widget `w` na tela de teste
+//   * pumpAndSettle()    avanca o tempo ate nao haver mais animacao/atualizacao
+//   * tap(finder)        simula um toque/clique
+//   * enterText(f, txt)  digita texto num campo
+//   * getSize/getTopLeft mede um widget ja desenhado
+// "Finders" localizam widgets: find.text, find.byType, find.byIcon,
+// find.byTooltip, find.textContaining. Matchers: findsOneWidget, findsNothing,
+// findsWidgets, findsNWidgets(n).
+// =============================================================================
+
 import 'dart:convert';
 
 import 'package:acontece_frontend/core/api_client.dart';
@@ -8,6 +32,7 @@ import 'package:acontece_frontend/services.dart';
 import 'package:acontece_frontend/widgets/evento_card.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+// `MockClient`: cliente HTTP de mentira, vindo do pacote http.
 import 'package:http/testing.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
@@ -18,6 +43,7 @@ import 'package:material_ui/material_ui.dart';
 /// (login, papeis, datas naive com fracao de segundo) sem depender da rede.
 
 /// Resposta real de `GET /evento/listar/`.
+/// (Texto de varias linhas com ''' ... '''.)
 const _eventosJson = '''
 [{"id":1,"titulo":"Radar Tech","descricao":"Evento da Semana Academica",
   "dataInicio":"2026-12-04T17:06:44.19","dataFim":"2026-12-08T17:06:44.19",
@@ -34,6 +60,8 @@ const _eventosJson = '''
   "fotoUrl":null}]
 ''';
 
+/// Apenas o primeiro evento (resposta de `GET /evento/buscar/1`): decodifica a
+/// lista, pega o item 0 e volta a transformar em texto JSON.
 String get _radarTech => jsonEncode((jsonDecode(_eventosJson) as List)[0]);
 
 /// Resposta de `POST /inscricoes`: a inscricao criada, sempre PENDENTE.
@@ -42,17 +70,20 @@ const _minhaInscricao =
     '"eventoId":1,"eventoTitulo":"Radar Tech","status":"PENDENTE",'
     '"dataInscricao":"2026-11-15T10:00:00"}';
 
+/// Pagina vazia no formato do Spring Data.
 const _paginaVazia =
     '{"content":[],"page":{"size":20,"number":0,"totalElements":0,'
     '"totalPages":0}}';
 
 /// JWT no formato do `TokenService` (a assinatura nao importa no cliente).
+/// `exp: 4102444800` = ano 2100 (nunca vence durante o teste).
 String _jwt(int id, String email, Papel papel) {
   String parte(Object json) =>
       base64Url.encode(utf8.encode(jsonEncode(json))).replaceAll('=', '');
   return '${parte({'alg': 'HS256'})}.${parte({'sub': '$id', 'email': email, 'papel': papel.wire, 'exp': 4102444800})}.sig';
 }
 
+/// Usuario "ja logado" de teste: id 1 = organizador, id 7 = participante.
 UsuarioLogado _usuario(Papel papel) {
   final id = papel == Papel.organizador ? 1 : 7;
   final email = papel == Papel.organizador
@@ -72,17 +103,24 @@ final _pedidos = <http.Request>[];
 
 /// Monta o app com um cliente que responde conforme [rotas]. Com [logado], a
 /// sessao ja comeca salva no storage, como depois de recarregar a pagina.
+///
+/// [responder] e uma funcao que, dado o pedido, devolve um mapa
+/// "final do caminho" -> resposta. O primeiro caminho que terminar com a chave
+/// vence; se nenhum casar, responde 404.
 Widget _appCom(
   Map<String, http.Response> Function(http.Request) responder, {
   Papel? logado,
 }) {
+  // Zera o historico de pedidos a cada teste.
   _pedidos.clear();
   final mock = MockClient((request) async {
+    // Registra o pedido para conferencia posterior.
     _pedidos.add(request);
     final respostas = responder(request);
     for (final entry in respostas.entries) {
       if (request.url.path.endsWith(entry.key)) return entry.value;
     }
+    // Rota que o teste nao previu: 404 explicito (ajuda a achar o erro).
     return http.Response(
       '{"status":404,"message":"rota nao mapeada no teste",'
       '"path":"${request.url.path}","fieldErrors":[]}',
@@ -90,9 +128,12 @@ Widget _appCom(
     );
   });
 
+  // Armazenamento em memoria; com `logado`, ja nasce com a sessao salva.
   final storage = MemoryTokenStorage(
     logado == null ? null : jsonEncode(_usuario(logado).toJson()),
   );
+  // Mesmo `Services` do app real, mas com o HTTP e o storage de teste
+  // (e por isso que a injecao de dependencias existe).
   return Services(
     client: ApiClient(client: mock),
     storage: storage,
@@ -100,15 +141,21 @@ Widget _appCom(
   );
 }
 
+/// Resposta HTTP de sucesso em UTF-8 (para os acentos chegarem certos).
 http.Response _ok(String corpo, [int status = 200]) => http.Response.bytes(
   utf8.encode(corpo),
   status,
   headers: {'content-type': 'application/json; charset=utf-8'},
 );
 
+/// Resposta de erro (mesmo formato; so muda o status).
 http.Response _erro(String corpo, int status) => _ok(corpo, status);
 
 /// Tela larga (barra lateral) por padrao; [largura] < 900 testa o celular.
+///
+/// Sem isto o teste roda em 800x600, no layout estreito. `devicePixelRatio = 1`
+/// faz 1 pixel fisico = 1 pixel logico (medidas previsiveis). `addTearDown`
+/// restaura a janela ao fim do teste.
 void _tela(WidgetTester tester, {double largura = 1400, double altura = 1400}) {
   tester.view.physicalSize = Size(largura, altura);
   tester.view.devicePixelRatio = 1;
@@ -116,12 +163,15 @@ void _tela(WidgetTester tester, {double largura = 1400, double altura = 1400}) {
 }
 
 void main() {
+  // `setUpAll` roda UMA vez antes de todos os testes: prepara os dados de
+  // idioma (datas em portugues) exigidos pelo `intl`.
   setUpAll(() {
     initializeDateFormatting('pt_BR');
     Intl.defaultLocale = 'pt_BR';
   });
 
   group('login', () {
+    // `testWidgets` e o `test` dos widgets: recebe o `tester`.
     testWidgets('sem sessao, o site abre na tela de entrada', (tester) async {
       _tela(tester);
       await tester.pumpWidget(_appCom((_) => {}));
@@ -152,6 +202,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Digita nos dois primeiros campos de texto (e-mail e senha).
       await tester.enterText(find.byType(TextFormField).at(0), 'x@x.com');
       await tester.enterText(find.byType(TextFormField).at(1), 'errada123');
       await tester.tap(find.text('Entrar'));
@@ -187,13 +238,17 @@ void main() {
       await tester.tap(find.text('Entrar'));
       await tester.pumpAndSettle();
 
+      // Procura, no historico, o pedido de login e confere o corpo enviado
+      // (e-mail normalizado para minusculas).
       final login = _pedidos.firstWhere((p) => p.url.path == '/auth/login');
       expect(jsonDecode(login.body), {
         'email': 'maria@exemplo.com',
         'senha': 'segredo123',
       });
+      // O login em si nao leva token (ainda nao existe).
       expect(login.headers.containsKey('Authorization'), isFalse);
 
+      // O pedido seguinte ja leva o token no header.
       final eventos = _pedidos.firstWhere(
         (p) => p.url.path == '/evento/listar/',
       );
@@ -209,6 +264,7 @@ void main() {
       _tela(tester);
       await tester.pumpWidget(
         _appCom(
+          // 401 com corpo vazio, como o filtro de seguranca do Spring.
           (_) => {'/evento/listar/': http.Response('', 401)},
           logado: Papel.participante,
         ),
@@ -216,6 +272,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Bem-vindo de volta'), findsOneWidget);
+      // `textContaining`: acha o texto que CONTEM o trecho.
       expect(find.textContaining('Sua sessão expirou'), findsOneWidget);
     });
 
@@ -229,6 +286,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // `byTooltip` acha o botao "Sair" da barra lateral.
       await tester.tap(find.byTooltip('Sair'));
       await tester.pumpAndSettle();
 
@@ -245,6 +303,8 @@ void main() {
       await tester.tap(find.text('Criar conta'));
       await tester.pumpAndSettle();
 
+      // Campos do cadastro, em ordem: 0 nome, 1 e-mail, 2 CPF, 3 telefone,
+      // 4 senha, 5 confirmacao.
       final campos = find.byType(TextFormField);
       await tester.enterText(campos.at(0), 'Maria');
       await tester.enterText(campos.at(1), 'maria@exemplo.com');
@@ -255,6 +315,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('CPF inválido'), findsOneWidget);
+      // Validacao local barrou: a API nem foi chamada.
       expect(_pedidos, isEmpty);
     });
 
@@ -290,6 +351,7 @@ void main() {
       await tester.tap(find.text('Criar conta e entrar'));
       await tester.pumpAndSettle();
 
+      // O corpo do POST deve vir normalizado (CPF so digitos, telefone null).
       final cadastro = _pedidos.firstWhere(
         (p) => p.url.path == '/participantes',
       );
@@ -300,6 +362,7 @@ void main() {
         'telefone': null,
         'senha': 'segredo123',
       });
+      // Depois do cadastro, entrou sozinho.
       expect(find.text('Descubra eventos'), findsOneWidget);
     });
   });
@@ -318,6 +381,7 @@ void main() {
       expect(find.text('Radar Tech'), findsOneWidget);
       expect(find.text('Evento de RAP'), findsOneWidget);
       expect(find.text('2 eventos'), findsOneWidget);
+      // `findsNWidgets(2)`: exatamente 2 ocorrencias (um por cartao).
       expect(find.text('Francisco Beltrao - PR'), findsNWidgets(2));
       expect(find.text('200 vagas'), findsOneWidget);
       expect(find.text('1 vaga'), findsOneWidget);
@@ -337,6 +401,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // `findsNothing`: nao pode existir nenhum widget com esse texto.
       expect(find.text('Novo evento'), findsNothing);
       expect(find.text('Participantes'), findsNothing);
       expect(find.text('Minhas inscrições'), findsOneWidget);
@@ -366,6 +431,7 @@ void main() {
       _tela(tester);
       await tester.pumpWidget(
         _appCom(
+          // `[]` = lista JSON vazia.
           (_) => {'/evento/listar/': _ok('[]')},
           logado: Papel.organizador,
         ),
@@ -403,6 +469,8 @@ void main() {
       tester,
     ) async {
       _tela(tester);
+      // Flag que muda de false para true quando o POST acontece, fazendo as
+      // respostas seguintes de GET /inscricoes mudarem (simula o servidor).
       var inscrito = false;
       const minha =
           '{"content":[{"id":10,"participanteId":7,'
@@ -418,6 +486,8 @@ void main() {
           return {
             '/evento/listar/': _ok(_eventosJson),
             '/evento/buscar/1': _ok(_radarTech),
+            // Para POST devolve a inscricao criada; para GET, vazio antes de
+            // se inscrever e com a inscricao depois.
             '/inscricoes': request.method == 'POST'
                 ? _ok(_minhaInscricao, 201)
                 : inscrito
@@ -428,10 +498,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Abre o detalhe clicando no cartao.
       await tester.tap(find.text('Radar Tech'));
       await tester.pumpAndSettle();
 
       expect(find.text('Avenida Julio Assis Cavalheiro, 02'), findsOneWidget);
+      // Participante nao ve editar/excluir.
       expect(find.text('Editar'), findsNothing);
       expect(find.text('Excluir'), findsNothing);
 
@@ -456,6 +528,7 @@ void main() {
             '/evento/listar/': _ok(_eventosJson),
             '/evento/buscar/1': _ok(_radarTech),
             '/inscricoes': request.method == 'POST'
+                // 409: a regra de negocio (vagas) e do servidor; o app so exibe.
                 ? _erro(
                     '{"status":409,"error":"Conflict",'
                     '"message":"Evento sem vagas disponíveis",'
@@ -474,11 +547,13 @@ void main() {
       await tester.tap(find.text('Quero me inscrever'));
       await tester.pumpAndSettle();
 
+      // A mensagem aparece (no snackbar) exatamente como veio da API.
       expect(find.text('Evento sem vagas disponíveis'), findsOneWidget);
     });
 
     testWidgets('organizador ve ocupacao e acoes no detalhe', (tester) async {
       _tela(tester);
+      // totalElements = 3 em CADA chamada de contagem (uma por status ativo).
       const contagem =
           '{"content":[],"page":{"size":1,"number":0,"totalElements":3,'
           '"totalPages":3}}';
@@ -507,6 +582,7 @@ void main() {
   });
 
   group('inscricoes', () {
+    // Duas inscricoes: uma CONFIRMADA e uma CANCELADA (terminal).
     const inscricoes = '''
     {"content":[
       {"id":10,"participanteId":1,"participanteNome":"Maria Silva",
@@ -531,6 +607,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Troca para a aba "Inscricoes" tocando no item do menu.
       await tester.tap(find.text('Inscrições'));
       await tester.pumpAndSettle();
 
@@ -566,6 +643,7 @@ void main() {
       await tester.tap(find.text('Minhas inscrições'));
       await tester.pumpAndSettle();
 
+      // `findsWidgets`: um ou mais.
       expect(find.text('Radar Tech'), findsWidgets);
       expect(find.text('Confirmada'), findsWidgets);
       expect(find.byIcon(Icons.more_vert), findsNothing);
@@ -600,6 +678,7 @@ void main() {
 
       expect(find.text('Maria Silva'), findsOneWidget);
       expect(find.text('maria@exemplo.com'), findsOneWidget);
+      // CPF e telefone exibidos ja com mascara.
       expect(find.text('CPF 529.982.247-25 · (46) 99988-7766'), findsOneWidget);
     });
 
@@ -632,6 +711,7 @@ void main() {
   testWidgets('em tela estreita a navegacao vai para a barra inferior', (
     tester,
   ) async {
+    // 420 px de largura = faixa "celular".
     _tela(tester, largura: 420, altura: 900);
     await tester.pumpWidget(
       _appCom(
@@ -641,6 +721,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    // `find.byType` procura por CLASSE de widget.
     expect(find.byType(NavigationBar), findsOneWidget);
     expect(find.byTooltip('Conta'), findsOneWidget);
   });
@@ -684,6 +765,7 @@ void main() {
 
       final cartoes = find.byType(EventoCard);
       expect(cartoes, findsNWidgets(4));
+      // Mede o tamanho (largura x altura) de cada um dos 4 cartoes.
       final tamanhos = [
         for (var i = 0; i < 4; i++) tester.getSize(cartoes.at(i)),
       ];
@@ -696,6 +778,7 @@ void main() {
       tester,
     ) async {
       _tela(tester, largura: 375, altura: 812);
+      // Simula o usuario ter aumentado a fonte do sistema em 40%.
       tester.platformDispatcher.textScaleFactorTestValue = 1.4;
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       await tester.pumpWidget(
@@ -714,6 +797,7 @@ void main() {
     });
 
     /// Colunas da grade: quantos cartoes ficam na mesma linha.
+    /// Conta quantos cartoes tem a mesma posicao vertical (`dy`) do primeiro.
     int colunas(WidgetTester tester) {
       final cartoes = find.byType(EventoCard);
       final topo = tester.getTopLeft(cartoes.at(0)).dy;
@@ -725,6 +809,7 @@ void main() {
     }
 
     // celular, tablet, notebook e desktop.
+    // Lista de "records": (nome, largura, altura).
     const faixas = <(String, double, double)>[
       ('celular', 375, 812),
       ('tablet', 768, 1024),
@@ -732,6 +817,8 @@ void main() {
       ('desktop', 1920, 1080),
     ];
 
+    // Gera testes automaticamente: 4 faixas x 2 papeis (+ 4 de login).
+    // Se QUALQUER tela estourar (overflow) em alguma largura, o teste falha.
     for (final (nome, largura, altura) in faixas) {
       for (final papel in Papel.values) {
         testWidgets('$nome (${largura.toInt()} px), ${papel.rotulo}: telas '
@@ -761,6 +848,8 @@ void main() {
                   jsonEncode((jsonDecode(eventosVariados) as List)[1]),
                 ),
                 '/inscricoes': _ok(inscricoes),
+                // A ordem importa: `/participantes/7` vem antes de
+                // `/participantes` (o primeiro que casar vence).
                 '/participantes/7': _ok(
                   '{"id":7,"nome":"Maria Silva","email":"maria@exemplo.com",'
                   '"cpf":"52998224725","telefone":"46999887766"}',
@@ -796,6 +885,7 @@ void main() {
           expect(colunas(tester), esperadas);
 
           // Detalhe do evento (titulo longo e descricao longa).
+          // `ensureVisible` rola ate o widget aparecer antes de tocar.
           await tester.ensureVisible(find.byType(EventoCard).at(1));
           await tester.pumpAndSettle();
           await tester.tap(find.byType(EventoCard).at(1));
@@ -805,15 +895,18 @@ void main() {
           await tester.pumpAndSettle();
 
           // As demais abas, pelo rotulo de cada faixa.
+          // Funcao local: tenta cada rotulo ate achar um existente na tela.
           Future<void> irPara(List<String> rotulos) async {
             for (final r in rotulos) {
               final alvo = find.text(r);
+              // `evaluate()` consulta agora se existe algum widget.
               if (alvo.evaluate().isNotEmpty) {
                 await tester.tap(alvo.first);
                 await tester.pumpAndSettle();
                 return;
               }
             }
+            // `fail` reprova o teste com uma mensagem.
             fail('Nenhuma aba encontrada entre $rotulos');
           }
 

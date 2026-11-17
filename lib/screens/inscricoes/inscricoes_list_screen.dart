@@ -1,3 +1,14 @@
+// =============================================================================
+// inscricoes_list_screen.dart - ABA DE INSCRICOES (organizador e participante)
+// =============================================================================
+//
+// A MESMA tela serve aos dois papeis, mudando o comportamento:
+//   * organizador  -> ve todas, filtra (evento/participante/status) e muda status
+//   * participante -> "Minhas inscricoes" (a API ja filtra pelo token), so le
+//
+// Tambem e aberta a partir do detalhe do evento (`eventoInicial` pre-filtra).
+// =============================================================================
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/api_exception.dart';
@@ -45,27 +56,34 @@ class InscricoesListScreen extends StatefulWidget {
 }
 
 class _InscricoesListScreenState extends State<InscricoesListScreen> {
+  // Filtros atuais (nulo = filtro nao aplicado).
   Evento? _evento;
   Participante? _participante;
   StatusInscricao? _status;
 
+  /// Pagina atual (base zero) e contador de recarga.
   int _pagina = 0;
   int _versao = 0;
 
   bool get _organizador => widget.usuario.ehOrganizador;
 
+  /// Muda quando QUALQUER filtro/pagina/versao muda => AsyncView recarrega.
+  /// (`_evento?.id`: se `_evento` for nulo, vira "null" no texto.)
   String get _chave =>
       '${_evento?.id}|${_participante?.id}|${_status?.wire}|$_pagina|$_versao';
 
+  /// Ha algum filtro aplicado?
   bool get _temFiltro =>
       _evento != null || _participante != null || _status != null;
 
   @override
   void initState() {
     super.initState();
+    // Se veio do detalhe de um evento, ja comeca filtrado por ele.
     _evento = widget.eventoInicial;
   }
 
+  /// Busca a pagina atual com os filtros ativos.
   Future<PagedModel<Inscricao>> _carregar() =>
       Services.of(context).inscricoes.listar(
         eventoId: _evento?.id,
@@ -75,6 +93,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
         page: _pagina,
       );
 
+  /// Remove todos os filtros e volta a primeira pagina.
   void _limparFiltros() => setState(() {
     _evento = null;
     _participante = null;
@@ -82,6 +101,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
     _pagina = 0;
   });
 
+  /// Muda o status (so organizador). Cancelar pede confirmacao (irreversivel).
   Future<void> _mudarStatus(Inscricao inscricao, StatusInscricao novo) async {
     if (novo == StatusInscricao.cancelada) {
       final ok = await confirmar(
@@ -99,6 +119,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
       await Services.of(context).inscricoes.atualizarStatus(inscricao.id, novo);
       if (!mounted) return;
       mostrarSucesso(context, 'Inscrição ${novo.rotulo.toLowerCase()}.');
+      // Recarrega a lista para refletir o novo status.
       setState(() => _versao++);
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -106,6 +127,8 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
     }
   }
 
+  /// Abre o detalhe do evento da inscricao; ao voltar, recarrega (o status ou
+  /// a ocupacao podem ter mudado).
   Future<void> _abrirEvento(Inscricao inscricao) async {
     await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -118,6 +141,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
     if (mounted) setState(() => _versao++);
   }
 
+  /// Abre o dialogo de escolha de evento e aplica como filtro.
   Future<void> _filtrarPorEvento() async {
     final evento = await escolherEvento(context, Services.of(context).eventos);
     if (evento != null && mounted) {
@@ -128,6 +152,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
     }
   }
 
+  /// Abre o dialogo de escolha de participante e aplica como filtro.
   Future<void> _filtrarPorParticipante() async {
     final participante = await escolherParticipante(
       context,
@@ -143,6 +168,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Textos mudam conforme o papel.
     final titulo = _organizador ? 'Inscrições' : 'Minhas inscrições';
     final subtitulo = _organizador
         ? 'Confirme ou cancele as inscrições dos participantes.'
@@ -160,12 +186,15 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
                 tooltip: 'Filtrar por evento',
                 onPressed: _filtrarPorEvento,
               ),
+              // Filtro por participante: so o organizador (a rota exige).
               if (_organizador)
                 AcaoCabecalho(
                   icone: Icons.person_search,
                   tooltip: 'Filtrar por participante',
                   onPressed: _filtrarPorParticipante,
                 ),
+              // Quando aberta por cima do detalhe, ja ha botao "Voltar"; o
+              // botao de conta fica so quando a tela e uma aba.
               if (widget.eventoInicial == null)
                 ContaBotao(usuario: widget.usuario),
             ],
@@ -173,6 +202,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
               evento: _evento,
               participante: _participante,
               status: _status,
+              // Trocar o status volta para a primeira pagina.
               onStatus: (valor) => setState(() {
                 _status = valor;
                 _pagina = 0;
@@ -185,6 +215,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
                 _participante = null;
                 _pagina = 0;
               }),
+              // `null` esconde o botao "Limpar" quando nao ha filtro.
               onLimpar: _temFiltro ? _limparFiltros : null,
             ),
           ),
@@ -193,6 +224,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
               reloadKey: _chave,
               load: _carregar,
               isEmpty: (pagina) => pagina.isEmpty,
+              // Mensagens do estado vazio dependem de filtro e papel.
               emptyTitle: _temFiltro
                   ? 'Nenhuma inscrição com esses filtros'
                   : _organizador
@@ -221,6 +253,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const SizedBox(height: 20),
+                          // Ex.: "1-20 de 37".
                           Text(
                             pagina.faixaDescrita,
                             style: Theme.of(context).textTheme.titleSmall
@@ -231,6 +264,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
                                 ),
                           ),
                           const SizedBox(height: 14),
+                          // Um cartao por inscricao, com espaco entre eles.
                           for (final inscricao in pagina.content) ...[
                             _InscricaoCartao(
                               inscricao: inscricao,
@@ -242,6 +276,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
                             const SizedBox(height: 12),
                           ],
                           const SizedBox(height: 8),
+                          // `null` desabilita o botao (sem pagina para ir).
                           _Paginacao(
                             pagina: pagina,
                             onAnterior: pagina.hasPrevious
@@ -265,6 +300,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
   }
 }
 
+/// Chips de filtro de status + chips dos filtros ativos (evento/participante).
 class _Filtros extends StatelessWidget {
   const _Filtros({
     required this.evento,
@@ -279,33 +315,45 @@ class _Filtros extends StatelessWidget {
   final Evento? evento;
   final Participante? participante;
   final StatusInscricao? status;
+
+  /// Recebe o status escolhido (`null` = "Todas").
   final ValueChanged<StatusInscricao?> onStatus;
   final VoidCallback onRemoverEvento;
   final VoidCallback onRemoverParticipante;
   final VoidCallback? onLimpar;
 
+  /// Chip de escolha unica ("Todas", "Pendente"...).
+  /// `ChoiceChip` e uma etiqueta que fica "selecionada" quando tocada.
   Widget _opcao(String rotulo, bool selecionado, VoidCallback onTap) =>
       ChoiceChip(
         label: Text(rotulo),
         selected: selecionado,
+        // Ao tocar, chama `onTap` (o parametro `_` do Flutter e ignorado).
         onSelected: (_) => onTap(),
+        // Sem o "tique" que o Material poe ao lado do texto quando selecionado.
         showCheckmark: false,
         // `color` (e nao `backgroundColor`): no Material 3 o fundo do chip vem
         // de `color`, e um fundo translucido aqui era ignorado, deixando texto
         // branco sobre chip branco. Cores solidas, para nao depender do que
         // esta atras.
+        // CONCEITO - WidgetStateProperty: valor que depende do ESTADO do widget
+        // (selecionado, hover, desabilitado...). `resolveWith` recebe o conjunto
+        // de estados atuais e devolve o valor correspondente.
         color: WidgetStateProperty.resolveWith(
           (estados) => estados.contains(WidgetState.selected)
               ? Paleta.ciano
               : Paleta.petroleo,
         ),
+        // Borda ciano: desenha o chip sobre o fundo escuro do cabecalho.
         side: const BorderSide(color: Paleta.ciano),
         labelStyle: TextStyle(
+          // Selecionado: texto escuro sobre ciano; senao, branco sobre petroleo.
           color: selecionado ? Paleta.marinho : Colors.white,
           fontWeight: FontWeight.w600,
         ),
       );
 
+  /// Chip removivel que representa um filtro ativo (com "x").
   Widget _filtroAtivo(IconData icone, String rotulo, VoidCallback onDeleted) =>
       InputChip(
         avatar: Icon(icone, size: 16, color: Paleta.marinho),
@@ -313,6 +361,7 @@ class _Filtros extends StatelessWidget {
         backgroundColor: Colors.white,
         side: BorderSide.none,
         deleteIconColor: Paleta.marinho,
+        // Mostrar o "x" e chama esta funcao ao toca-lo.
         onDeleted: onDeleted,
       );
 
@@ -325,6 +374,7 @@ class _Filtros extends StatelessWidget {
       // Os filtros da API sao independentes e combinaveis: cada um ausente e
       // simplesmente ignorado pela consulta.
       _opcao('Todas', status == null, () => onStatus(null)),
+      // Um chip por status do enum.
       for (final valor in StatusInscricao.values)
         _opcao(valor.rotulo, status == valor, () => onStatus(valor)),
       if (evento != null)
@@ -354,6 +404,8 @@ class _InscricaoCartao extends StatelessWidget {
   final Inscricao inscricao;
   final bool organizador;
   final VoidCallback onAbrir;
+
+  /// Recebe o novo status escolhido no menu.
   final ValueChanged<StatusInscricao> onMudarStatus;
 
   @override
@@ -364,16 +416,20 @@ class _InscricaoCartao extends StatelessWidget {
     // Somente as transicoes que o back-end aceita. `CANCELADA` e terminal, e
     // ate repetir o status atual seria recusado com 409 — por isso o botao
     // desaparece em vez de oferecer uma acao que falharia.
+    // Participante nunca ve acoes (lista vazia constante).
     final proximos = organizador
         ? inscricao.status.proximos.toList(growable: false)
         : const <StatusInscricao>[];
 
+    // Cor da faixa lateral conforme o status.
     final corFaixa = switch (inscricao.status) {
       StatusInscricao.pendente => Paleta.turquesa,
       StatusInscricao.confirmada => Paleta.azul,
       StatusInscricao.cancelada => scheme.outlineVariant,
     };
 
+    // Organizador ve o NOME do participante em destaque; participante ve o
+    // TITULO do evento.
     final principal = organizador
         ? inscricao.participanteNome
         : inscricao.eventoTitulo;
@@ -383,6 +439,7 @@ class _InscricaoCartao extends StatelessWidget {
 
     final celular = Tela.of(context).ehCelular;
     final selo = StatusInscricaoChip(status: inscricao.status);
+    // Menu "tres pontinhos" com as transicoes; `Widget?` pois pode nao existir.
     final Widget? menu = proximos.isNotEmpty
         ? PopupMenuButton<StatusInscricao>(
             tooltip: 'Alterar status',
@@ -411,15 +468,19 @@ class _InscricaoCartao extends StatelessWidget {
                 ),
             ],
           )
+        // Sem menu (inscricao cancelada): reserva o espaco para alinhar as
+        // colunas dos demais cartoes (so organizador, fora do celular).
         : (organizador && !celular ? const SizedBox(width: 48) : null);
 
     return Card(
       child: InkWell(
         onTap: onAbrir,
+        // IntrinsicHeight: a faixa colorida acompanha a altura do conteudo.
         child: IntrinsicHeight(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Faixa lateral de 6 px com a cor do status.
               Container(width: 6, color: corFaixa),
               Expanded(
                 child: Padding(
@@ -472,6 +533,8 @@ class _InscricaoCartao extends StatelessWidget {
                         ),
                       ),
                       if (!celular) ...[const SizedBox(width: 12), selo],
+                      // `?menu` (null-aware element): so inclui o item na lista
+                      // se `menu` NAO for nulo.
                       ?menu,
                     ],
                   ),
@@ -485,6 +548,7 @@ class _InscricaoCartao extends StatelessWidget {
   }
 }
 
+/// Controles "< Pagina X de Y >" (escondidos quando ha uma pagina so).
 class _Paginacao extends StatelessWidget {
   const _Paginacao({
     required this.pagina,
@@ -492,18 +556,21 @@ class _Paginacao extends StatelessWidget {
     required this.onProxima,
   });
 
+  /// `PagedModel<Object?>`: aceita pagina de qualquer tipo (so usa os numeros).
   final PagedModel<Object?> pagina;
   final VoidCallback? onAnterior;
   final VoidCallback? onProxima;
 
   @override
   Widget build(BuildContext context) {
+    // Uma pagina so: nao ha o que paginar.
     if (pagina.totalPages <= 1) return const SizedBox.shrink();
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         IconButton.outlined(
           style: IconButton.styleFrom(
+            // Cor legivel mesmo quando o botao esta desabilitado.
             disabledForegroundColor: Theme.of(context)
                 .colorScheme
                 .onSurfaceVariant
@@ -516,6 +583,7 @@ class _Paginacao extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Text(
+            // `number` e base zero; mostramos +1 ao usuario.
             'Página ${pagina.number + 1} de ${pagina.totalPages}',
             style: Theme.of(context).textTheme.bodyMedium,
           ),

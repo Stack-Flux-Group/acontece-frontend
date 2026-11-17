@@ -1,3 +1,8 @@
+// =============================================================================
+// participante.dart - MODELOS DE PARTICIPANTE (leitura, criacao e edicao)
+// =============================================================================
+
+// Validators.digits: remove pontuacao de CPF/telefone antes de enviar.
 import '../core/validators.dart';
 
 /// Espelha `ParticipanteResponse`.
@@ -17,14 +22,20 @@ class Participante {
   final int id;
   final String nome;
   final String email;
+
+  /// 11 digitos, sem pontuacao.
   final String cpf;
+
+  /// Opcional.
   final String? telefone;
 
+  /// Constroi a partir do JSON da API (`?? ''` troca nulo por vazio).
   factory Participante.fromJson(Map<String, dynamic> json) => Participante(
     id: (json['id'] as num).toInt(),
     nome: (json['nome'] ?? '').toString(),
     email: (json['email'] ?? '').toString(),
     cpf: (json['cpf'] ?? '').toString(),
+    // `as String?` aceita texto ou nulo (telefone e opcional).
     telefone: json['telefone'] as String?,
   );
 }
@@ -50,11 +61,15 @@ class ParticipanteInput {
   final String senha;
   final String? telefone;
 
+  /// Normaliza antes de enviar: nome sem espacos nas pontas, e-mail em
+  /// minusculas, CPF/telefone so com digitos. Telefone vazio vira `null`.
+  /// (`telefone!` afirma nao-nulo; seguro porque o ternario ja checou.)
   Map<String, dynamic> toJson() => <String, dynamic>{
     'nome': nome.trim(),
     'email': email.trim().toLowerCase(),
     'cpf': Validators.digits(cpf),
     'telefone': (telefone ?? '').isEmpty ? null : Validators.digits(telefone!),
+    // A senha vai como foi digitada (a API guarda so o hash).
     'senha': senha,
   };
 }
@@ -70,6 +85,7 @@ class ParticipanteInput {
 /// enviar a string vazia `""`. Por isso [limparTelefone] existe separado de
 /// [telefone] — sem essa distincao nao ha como zerar o campo.
 class ParticipantePatch {
+  /// Todos opcionais: so os informados entram no JSON.
   const ParticipantePatch({
     this.nome,
     this.email,
@@ -82,8 +98,11 @@ class ParticipantePatch {
   final String? email;
   final String? cpf;
   final String? telefone;
+
+  /// `true` = enviar `""` para apagar o telefone no servidor.
   final bool limparTelefone;
 
+  /// Nada a alterar? (Evita mandar um PATCH vazio.)
   bool get isEmpty =>
       nome == null &&
       email == null &&
@@ -91,12 +110,15 @@ class ParticipantePatch {
       telefone == null &&
       !limparTelefone;
 
+  /// Monta o JSON incluindo SOMENTE os campos preenchidos.
   Map<String, dynamic> toJson() {
+    // Map vazio, preenchido condicionalmente.
     final json = <String, dynamic>{};
     if (nome != null) json['nome'] = nome!.trim();
     if (email != null) json['email'] = email!.trim().toLowerCase();
     if (cpf != null) json['cpf'] = Validators.digits(cpf!);
     if (limparTelefone) {
+      // Regra do back-end: string vazia apaga o telefone.
       json['telefone'] = '';
     } else if (telefone != null) {
       json['telefone'] = Validators.digits(telefone!);
@@ -113,15 +135,18 @@ class ParticipantePatch {
     required String cpf,
     required String telefone,
   }) {
+    // Compara so digitos, ignorando mascara.
     final novoTelefone = Validators.digits(telefone);
     final telefoneAtual = Validators.digits(atual.telefone ?? '');
     return ParticipantePatch(
+      // Igual ao atual => `null` (nao mexe); diferente => envia o novo valor.
       nome: nome.trim() == atual.nome ? null : nome,
       email: email.trim().toLowerCase() == atual.email ? null : email,
       cpf: Validators.digits(cpf) == atual.cpf ? null : cpf,
       telefone: novoTelefone.isEmpty || novoTelefone == telefoneAtual
           ? null
           : telefone,
+      // Campo esvaziado, mas existia telefone: pede para apagar.
       limparTelefone: novoTelefone.isEmpty && telefoneAtual.isNotEmpty,
     );
   }

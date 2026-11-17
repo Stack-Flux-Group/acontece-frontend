@@ -1,3 +1,14 @@
+// =============================================================================
+// evento_card.dart - CARTAO DE EVENTO (grade) E FOTO DO EVENTO
+// =============================================================================
+//
+// Contem:
+//   * EventoCard  -> cartao clicavel da grade de eventos (altura fixa)
+//   * _DataSelo   -> "04 DEZ" no canto da foto
+//   * EventoFoto  -> foto da URL, ou degrade quando nao ha foto
+//   * _Linha      -> linha "icone + texto" do cartao
+// =============================================================================
+
 import 'package:material_ui/material_ui.dart';
 
 import '../core/formatters.dart';
@@ -12,10 +23,15 @@ import 'status_chip.dart';
 /// linhas, a descricao reserva duas linhas (vazia, se nao houver) e o rodape
 /// "Ver detalhes" fica sempre colado na base. Sem isso as fileiras da grade
 /// ficavam desalinhadas.
+///
+/// E StatefulWidget so para lembrar se o mouse esta em cima (efeito hover).
 class EventoCard extends StatefulWidget {
   const EventoCard({super.key, required this.evento, required this.onTap});
 
+  /// Evento exibido.
   final Evento evento;
+
+  /// Chamado ao clicar no cartao (a tela abre o detalhe).
   final VoidCallback onTap;
 
   /// Altura da foto no topo do cartao.
@@ -26,6 +42,7 @@ class EventoCard extends StatefulWidget {
   static double altura(BuildContext context) {
     const fixo = 210.0; // foto, espacamentos, divisor
     const texto = 170.0; // titulo, informacoes, descricao e rodape
+    // `textScalerOf(context).scale(1)` = fator de ampliacao de texto (1.0 = normal).
     return fixo + texto * MediaQuery.textScalerOf(context).scale(1);
   }
 
@@ -34,10 +51,12 @@ class EventoCard extends StatefulWidget {
 }
 
 class _EventoCardState extends State<EventoCard> {
+  /// `true` enquanto o ponteiro do mouse esta sobre o cartao.
   bool _sobre = false;
 
   @override
   Widget build(BuildContext context) {
+    // Atalho para o evento do widget.
     final evento = widget.evento;
     final texto = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
@@ -47,21 +66,28 @@ class _EventoCardState extends State<EventoCard> {
     final estiloTitulo = texto.titleMedium?.copyWith(
       fontWeight: FontWeight.w700,
     );
+    // Altura de 2 linhas = (tamanho da fonte x altura da linha) x 2, ja
+    // ajustada pela ampliacao de texto do sistema.
     final alturaTitulo =
         MediaQuery.textScalerOf(context).scale(
           (estiloTitulo?.fontSize ?? 16) * (estiloTitulo?.height ?? 1.5),
         ) *
         2;
 
+    // MouseRegion detecta o mouse entrando/saindo e define o cursor (mao).
     return MouseRegion(
       onEnter: (_) => setState(() => _sobre = true),
       onExit: (_) => setState(() => _sobre = false),
       cursor: SystemMouseCursors.click,
+      // AnimatedContainer anima suavemente as mudancas de suas propriedades
+      // (sombra e deslocamento) ao longo de 180 ms.
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
+        // No hover, o cartao "sobe" 4 px.
         transform: Matrix4.translationValues(0, _sobre ? -4 : 0, 0),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
+          // Sombra mais forte e maior no hover.
           boxShadow: [
             BoxShadow(
               color: Paleta.marinho.withValues(alpha: _sobre ? 0.16 : 0.06),
@@ -71,23 +97,28 @@ class _EventoCardState extends State<EventoCard> {
           ],
         ),
         child: Card(
+          // InkWell: torna o cartao clicavel, com efeito "ondulacao".
           child: InkWell(
             onTap: widget.onTap,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Foto com selos sobrepostos.
                 Stack(
                   children: [
                     EventoFoto(
                       url: evento.fotoUrl,
                       altura: EventoCard.alturaFoto,
+                      // O id define qual degrade usar quando nao ha foto.
                       semente: evento.id,
                     ),
+                    // Data no canto superior esquerdo.
                     Positioned(
                       top: 12,
                       left: 12,
                       child: _DataSelo(data: evento.dataInicio),
                     ),
+                    // Situacao do evento no canto superior direito.
                     Positioned(
                       top: 12,
                       right: 12,
@@ -98,18 +129,21 @@ class _EventoCardState extends State<EventoCard> {
                     ),
                   ],
                 ),
+                // Expanded: o texto ocupa a altura que sobrou apos a foto.
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Caixa de altura fixa (2 linhas) para o titulo.
                         SizedBox(
                           height: alturaTitulo,
                           child: Text(
                             evento.titulo,
                             style: estiloTitulo,
                             maxLines: 2,
+                            // Corta com "..." se passar de 2 linhas.
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -140,11 +174,14 @@ class _EventoCardState extends State<EventoCard> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
+                        // Spacer empurra o que vem depois para o fim da coluna
+                        // (rodape sempre colado na base).
                         const Spacer(),
                         Divider(color: scheme.outlineVariant),
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           child: Row(
+                            // Texto na esquerda e seta na direita.
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
@@ -199,6 +236,7 @@ class _DataSelo extends StatelessWidget {
     child: Column(
       children: [
         Text(
+          // `padLeft(2, '0')` completa com zero a esquerda: 4 -> "04".
           data.day.toString().padLeft(2, '0'),
           style: const TextStyle(
             fontSize: 18,
@@ -208,6 +246,7 @@ class _DataSelo extends StatelessWidget {
           ),
         ),
         Text(
+          // Mes abreviado em maiusculas ("DEZ").
           Fmt.mesCurto(data),
           style: const TextStyle(
             fontSize: 11,
@@ -234,14 +273,22 @@ class EventoFoto extends StatelessWidget {
     this.semente = 0,
   });
 
+  /// Endereco da imagem (pode ser nulo/vazio/invalido).
   final String? url;
+
+  /// Altura em pixels logicos.
   final double altura;
+
+  /// Numero que escolhe qual degrade usar (normalmente o id do evento).
   final int semente;
 
   @override
   Widget build(BuildContext context) {
+    // Escolhe um degrade da lista pelo resto da divisao (`%`): sempre o
+    // mesmo para o mesmo id. `abs()` evita indice negativo.
     final cores =
         Paleta.degradesEvento[semente.abs() % Paleta.degradesEvento.length];
+    // Imagem "de mentira": degrade + icone de festa.
     final placeholder = Container(
       height: altura,
       width: double.infinity,
@@ -254,6 +301,7 @@ class EventoFoto extends StatelessWidget {
       ),
       child: Stack(
         children: [
+          // Icone grande e translucido de fundo, cortado no canto.
           Positioned(
             right: -altura * 0.15,
             bottom: -altura * 0.2,
@@ -263,6 +311,7 @@ class EventoFoto extends StatelessWidget {
               color: Colors.white.withValues(alpha: 0.08),
             ),
           ),
+          // Icone menor centralizado.
           Center(
             child: Icon(
               Icons.celebration_outlined,
@@ -274,21 +323,28 @@ class EventoFoto extends StatelessWidget {
       ),
     );
 
+    // `?.trim() ?? ''`: sem URL vira texto vazio.
     final endereco = url?.trim() ?? '';
+    // Sem URL: usa so o degrade.
     if (endereco.isEmpty) return placeholder;
 
+    // Com URL: baixa a imagem da internet.
     return Image.network(
       endereco,
       height: altura,
       width: double.infinity,
+      // `cover` preenche toda a area, cortando o excesso (sem distorcer).
       fit: BoxFit.cover,
+      // Falha ao carregar (URL quebrada/bloqueada): mostra o degrade.
       errorBuilder: (_, _, _) => placeholder,
+      // Enquanto baixa (`progress != null`), tambem mostra o degrade.
       loadingBuilder: (context, child, progress) =>
           progress == null ? child : placeholder,
     );
   }
 }
 
+/// Linha "icone + texto" de uma informacao do cartao.
 class _Linha extends StatelessWidget {
   const _Linha({required this.icone, required this.texto});
 
@@ -302,6 +358,7 @@ class _Linha extends StatelessWidget {
       children: [
         Icon(icone, size: 15, color: scheme.primary),
         const SizedBox(width: 8),
+        // Expanded + ellipsis: texto longo e cortado, nunca estoura a linha.
         Expanded(
           child: Text(
             texto,

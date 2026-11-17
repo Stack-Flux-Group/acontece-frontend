@@ -1,3 +1,18 @@
+// =============================================================================
+// home_shell.dart - "CASCA" DO APP LOGADO (menu + abas)
+// =============================================================================
+//
+// Depois do login, tudo acontece dentro desta casca. Ela desenha o menu de
+// navegacao e mostra a aba escolhida. O menu muda conforme a largura da tela:
+//
+//   celular  -> barra INFERIOR (NavigationBar)
+//   tablet   -> barra LATERAL compacta (so icones)
+//   notebook / desktop -> barra LATERAL completa
+//
+// Tambem define widgets reutilizados em outras telas: AvatarUsuario e
+// ContaBotao (menu "Sair" para o celular).
+// =============================================================================
+
 import 'package:material_ui/material_ui.dart';
 
 import '../core/theme.dart';
@@ -18,6 +33,7 @@ import 'participantes/perfil_screen.dart';
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key, required this.usuario});
 
+  /// Quem esta logado; repassado para cada aba (por construtor).
   final UsuarioLogado usuario;
 
   @override
@@ -25,8 +41,12 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
+  /// Indice da aba selecionada (0 = primeira).
   int _aba = 0;
 
+  /// Lista de abas conforme o papel. `late final`: so e calculada na primeira
+  /// vez que e usada (assim ja da para ler `widget.usuario`). Cada `_Aba` guarda
+  /// rotulo, icones (normal e selecionado) e a tela correspondente.
   late final List<_Aba> _abas = widget.usuario.ehOrganizador
       ? [
           _Aba(
@@ -71,22 +91,29 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    // Faixa de largura atual (celular, tablet, notebook ou desktop).
     final tela = Tela.of(context);
 
     // As telas sao mantidas vivas para que trocar de aba nao refaca a chamada
     // a API — importante quando o cold start custa minutos.
+    // CONCEITO - IndexedStack: empilha todos os filhos, mas MOSTRA so o do
+    // `index`; os demais continuam construidos (mantendo seu estado).
     final conteudo = IndexedStack(
       index: _aba,
+      // `for` dentro de lista: um widget por aba.
       children: [for (final aba in _abas) aba.tela],
     );
 
     // Celular: barra inferior. Tablet: barra lateral so com icones. Notebook e
     // desktop: barra lateral completa.
     if (tela.ehCelular) {
+      // Scaffold = estrutura basica de uma tela (corpo, barras, FAB...).
       return Scaffold(
+        // SafeArea evita areas do sistema (notch, barra de status).
         body: SafeArea(child: conteudo),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _aba,
+          // Ao tocar num destino, guarda o indice e redesenha.
           onDestinationSelected: (i) => setState(() => _aba = i),
           destinations: [
             for (final aba in _abas)
@@ -100,6 +127,7 @@ class _HomeShellState extends State<HomeShell> {
       );
     }
 
+    // Telas maiores: barra lateral a esquerda + conteudo a direita.
     return Scaffold(
       body: Row(
         children: [
@@ -110,6 +138,7 @@ class _HomeShellState extends State<HomeShell> {
             usuario: widget.usuario,
             onSelecionar: (i) => setState(() => _aba = i),
           ),
+          // Expanded: o conteudo ocupa toda a largura que sobrar.
           Expanded(child: conteudo),
         ],
       ),
@@ -117,6 +146,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
+/// Barra lateral (tablet/notebook/desktop).
 class _BarraLateral extends StatelessWidget {
   const _BarraLateral({
     required this.compacta,
@@ -131,11 +161,15 @@ class _BarraLateral extends StatelessWidget {
   final List<_Aba> abas;
   final int selecionada;
   final UsuarioLogado usuario;
+
+  /// `ValueChanged<int>` = funcao que recebe um int (o indice escolhido).
   final ValueChanged<int> onSelecionar;
 
   @override
   Widget build(BuildContext context) => Container(
+    // Largura fixa: 88 (compacta) ou 248 (completa).
     width: compacta ? 88 : 248,
+    // Fundo em degrade vertical, do marinho ao petroleo.
     decoration: const BoxDecoration(
       gradient: LinearGradient(
         begin: Alignment.topCenter,
@@ -154,6 +188,7 @@ class _BarraLateral extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Logo no topo (so o icone se compacta).
             Padding(
               padding: EdgeInsets.only(left: compacta ? 0 : 8),
               child: Align(
@@ -166,6 +201,7 @@ class _BarraLateral extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 36),
+            // Titulo da secao (so na barra completa).
             if (!compacta)
               Padding(
                 padding: const EdgeInsets.only(left: 12, bottom: 8),
@@ -185,6 +221,7 @@ class _BarraLateral extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // Um item de menu por aba (laco com indice).
                     for (var i = 0; i < abas.length; i++)
                       _ItemMenu(
                         compacta: compacta,
@@ -197,6 +234,7 @@ class _BarraLateral extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
+            // Cartao do usuario com o botao Sair, no rodape da barra.
             _CartaoUsuario(usuario: usuario, compacta: compacta),
           ],
         ),
@@ -205,6 +243,7 @@ class _BarraLateral extends StatelessWidget {
   );
 }
 
+/// Um item clicavel do menu lateral.
 class _ItemMenu extends StatelessWidget {
   const _ItemMenu({
     required this.compacta,
@@ -215,29 +254,36 @@ class _ItemMenu extends StatelessWidget {
 
   final bool compacta;
   final _Aba aba;
+
+  /// Este item e a aba atual?
   final bool selecionado;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 4),
+    // Material: necessario para o InkWell desenhar o efeito sobre a cor de fundo.
     child: Material(
+      // Selecionado = fundo ciano; senao transparente.
       color: selecionado ? Paleta.ciano : Colors.transparent,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
+        // Leve clareada ao passar o mouse.
         hoverColor: Colors.white.withValues(alpha: 0.06),
         child: Padding(
           padding: EdgeInsets.symmetric(
             horizontal: compacta ? 4 : 14,
             vertical: compacta ? 10 : 13,
           ),
+          // Compacta: icone sobre texto curto. Completa: icone ao lado do texto.
           child: compacta
               ? Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
+                      // Icone cheio quando selecionado, so contorno quando nao.
                       selecionado ? aba.iconeSelecionado : aba.icone,
                       size: 22,
                       color: selecionado ? Paleta.marinho : Paleta.ciano,
@@ -284,6 +330,7 @@ class _ItemMenu extends StatelessWidget {
   );
 }
 
+/// Bloco "avatar + e-mail + papel + Sair" no rodape da barra lateral.
 class _CartaoUsuario extends StatelessWidget {
   const _CartaoUsuario({required this.usuario, required this.compacta});
 
@@ -297,12 +344,15 @@ class _CartaoUsuario extends StatelessWidget {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Tooltip: balao de texto ao passar o mouse.
           Tooltip(
             message: '${usuario.email} (${usuario.papel.rotulo})',
             child: AvatarUsuario(usuario: usuario, raio: 18),
           ),
           IconButton(
             tooltip: 'Sair',
+            // `Services.of(context).sessao.sair()` encerra a sessao; main.dart
+            // percebe a mudanca e volta para o login.
             onPressed: () => Services.of(context).sessao.sair(),
             icon: const Icon(Icons.logout, color: Paleta.ciano, size: 22),
           ),
@@ -312,9 +362,11 @@ class _CartaoUsuario extends StatelessWidget {
     return _cartaoCompleto(context);
   }
 
+  /// Versao larga do cartao (metodo auxiliar que devolve um Widget).
   Widget _cartaoCompleto(BuildContext context) => Container(
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
+      // Branco a 7% de opacidade: um "vidro" leve sobre o fundo escuro.
       color: Colors.white.withValues(alpha: 0.07),
       borderRadius: BorderRadius.circular(14),
       border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
@@ -329,6 +381,7 @@ class _CartaoUsuario extends StatelessWidget {
             children: [
               Text(
                 usuario.email,
+                // Uma linha so; corta com "..." se o e-mail for longo.
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -359,14 +412,18 @@ class AvatarUsuario extends StatelessWidget {
   const AvatarUsuario({super.key, required this.usuario, this.raio = 16});
 
   final UsuarioLogado usuario;
+
+  /// Raio do circulo, em pixels logicos.
   final double raio;
 
   @override
   Widget build(BuildContext context) => CircleAvatar(
     radius: raio,
+    // Organizador = turquesa; participante = ciano (cor diferente por papel).
     backgroundColor: usuario.ehOrganizador ? Paleta.turquesa : Paleta.ciano,
     foregroundColor: Paleta.marinho,
     child: Text(
+      // Primeira letra do e-mail, em maiuscula; "?" se o e-mail estiver vazio.
       usuario.email.isEmpty ? '?' : usuario.email[0].toUpperCase(),
       style: TextStyle(fontWeight: FontWeight.w800, fontSize: raio * 0.9),
     ),
@@ -383,13 +440,18 @@ class ContaBotao extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // So no celular: de tablet para cima a barra lateral ja tem o "Sair".
+    // `SizedBox.shrink()` = widget invisivel de tamanho zero.
     if (!Tela.of(context).ehCelular) return const SizedBox.shrink();
+    // PopupMenuButton: botao que abre um menu suspenso; `<String>` e o tipo do
+    // valor de cada item.
     return PopupMenuButton<String>(
       tooltip: 'Conta',
+      // Chamado com o `value` do item escolhido.
       onSelected: (valor) {
         if (valor == 'sair') Services.of(context).sessao.sair();
       },
       itemBuilder: (_) => [
+        // Item informativo (nao clicavel): mostra e-mail e papel.
         PopupMenuItem(
           enabled: false,
           child: Column(
@@ -413,7 +475,9 @@ class ContaBotao extends StatelessWidget {
             ],
           ),
         ),
+        // Linha fina separando as informacoes da acao "Sair".
         const PopupMenuDivider(),
+        // Item "Sair": `value: 'sair'` e o que chega em `onSelected`.
         const PopupMenuItem(
           value: 'sair',
           child: Row(
@@ -425,6 +489,7 @@ class ContaBotao extends StatelessWidget {
           ),
         ),
       ],
+      // O "botao" visivel e o avatar.
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12),
         child: AvatarUsuario(usuario: usuario),
@@ -433,11 +498,14 @@ class ContaBotao extends StatelessWidget {
   }
 }
 
+/// Dados de uma aba do menu: rotulo, icones e a tela exibida.
 class _Aba {
   const _Aba(this.rotulo, this.icone, this.iconeSelecionado, this.tela);
   final String rotulo;
 
   /// Rotulo de uma palavra, para a barra lateral compacta do tablet.
+  /// `switch` como expressao: troca alguns rotulos por uma versao curta e
+  /// devolve o proprio rotulo (`_`) nos demais casos.
   String get rotuloCurto => switch (rotulo) {
     'Minhas inscrições' => 'Inscrições',
     'Meu perfil' => 'Perfil',

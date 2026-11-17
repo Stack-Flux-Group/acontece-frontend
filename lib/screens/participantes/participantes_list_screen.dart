@@ -1,3 +1,11 @@
+// =============================================================================
+// participantes_list_screen.dart - ABA "PARTICIPANTES" (so organizador)
+// =============================================================================
+//
+// Lista paginada pelo SERVIDOR (20 por pagina) com ordenacao, criacao, edicao
+// e exclusao. Mesmo padrao das outras listas: `_chave` + AsyncView.
+// =============================================================================
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/api_exception.dart';
@@ -31,24 +39,36 @@ class ParticipantesListScreen extends StatefulWidget {
 }
 
 class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
+  /// `static const`: constante da classe (itens por pagina).
   static const _tamanhoPagina = 20;
 
+  /// Pagina atual (base zero).
   int _pagina = 0;
+
+  /// Ordenacao no formato do Spring: "campo,asc|desc".
   String _ordem = 'nome,asc';
+
+  /// Incrementado para forcar recarga (apos criar/editar/excluir).
   int _versao = 0;
 
+  /// Qualquer mudanca em pagina/ordem/versao faz o AsyncView recarregar.
   String get _chave => '$_pagina|$_ordem|$_versao';
 
+  /// Busca a pagina atual no servidor.
   Future<PagedModel<Participante>> _carregar() =>
       Services.of(context).participantes
           .listar(page: _pagina, size: _tamanhoPagina, sort: _ordem);
 
+  /// Soma 1 na versao: muda a `_chave` e o AsyncView busca de novo.
   void _recarregar() => setState(() => _versao++);
 
+  /// Abre o formulario de novo participante; ao salvar, volta a pagina 1.
   Future<void> _criar() async {
+    // `push<bool>` empilha a tela e espera o `bool` devolvido no `pop`.
     final salvou = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const ParticipanteFormScreen()),
     );
+    // `mounted`: depois de um `await`, confirma que a tela ainda existe.
     if (salvou == true && mounted) {
       setState(() {
         _pagina = 0;
@@ -57,6 +77,7 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
     }
   }
 
+  /// Abre o formulario ja preenchido para edicao.
   Future<void> _editar(Participante participante) async {
     final salvou = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -66,6 +87,7 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
     if (salvou == true && mounted) _recarregar();
   }
 
+  /// Confirma e exclui. A API recusa (409) se houver inscricoes.
   Future<void> _excluir(Participante participante) async {
     final confirmado = await confirmar(
       context,
@@ -74,6 +96,7 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
           'A exclusão é definitiva. Se o participante tiver inscrições, a API '
           'vai recusar a operação.',
     );
+    // Cancelou (ou a tela foi fechada): nada a fazer.
     if (!confirmado || !mounted) return;
 
     try {
@@ -95,17 +118,21 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
           titulo: 'Participantes',
           subtitulo: 'Pessoas cadastradas na plataforma.',
           acoes: [
+            // Menu de ordenacao.
             PopupMenuButton<String>(
               tooltip: 'Ordenar',
               // Cor explicita: sem ela o icone herdaria a cor escura do tema e
               // sumiria sobre o degrade do cabecalho.
               icon: const Icon(Icons.sort, color: Colors.white),
               style: estiloBotaoCabecalho,
+              // Marca a opcao atual no menu.
               initialValue: _ordem,
               onSelected: (valor) => setState(() {
                 _ordem = valor;
+                // Trocar a ordem volta para a primeira pagina.
                 _pagina = 0;
               }),
+              // Cada item tem um `value` (o que vai para a API) e um texto.
               itemBuilder: (_) => const [
                 PopupMenuItem(value: 'nome,asc', child: Text('Nome (A-Z)')),
                 PopupMenuItem(value: 'nome,desc', child: Text('Nome (Z-A)')),
@@ -136,6 +163,7 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: 20),
+                      // Ex.: "1-20 de 37".
                       Text(
                         pagina.faixaDescrita,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -143,9 +171,12 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
+                      // Um unico Card com as linhas separadas por Divider.
                       Card(
                         child: Column(
                           children: [
+                            // `...[ ]` dentro do `for`: cada volta adiciona
+                            // (divisor opcional + linha).
                             for (var i = 0; i < pagina.content.length; i++) ...[
                               if (i > 0) const Divider(height: 1),
                               _ParticipanteLinha(
@@ -158,6 +189,7 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
                         ),
                       ),
                       const SizedBox(height: 16),
+                      // Botoes anterior/proxima (null desabilita).
                       _Paginacao(
                         pagina: pagina,
                         onAnterior: pagina.hasPrevious
@@ -176,6 +208,7 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
         ),
       ],
     ),
+    // heroTag proprio: as abas coexistem no IndexedStack (ver CLAUDE.md).
     floatingActionButton: FloatingActionButton.extended(
       heroTag: 'fab-participantes',
       onPressed: _criar,
@@ -185,6 +218,7 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
   );
 }
 
+/// Uma linha da lista: avatar, nome, e-mail, CPF/telefone e acoes.
 class _ParticipanteLinha extends StatelessWidget {
   const _ParticipanteLinha({
     required this.participante,
@@ -199,12 +233,14 @@ class _ParticipanteLinha extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // ListTile: linha padrao do Material (leading, title, subtitle, trailing).
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       leading: CircleAvatar(
         backgroundColor: scheme.primaryContainer,
         foregroundColor: scheme.onPrimaryContainer,
         child: Text(
+          // Inicial do nome em maiuscula; "?" se o nome estiver vazio.
           participante.nome.isEmpty
               ? '?'
               : participante.nome.substring(0, 1).toUpperCase(),
@@ -216,6 +252,7 @@ class _ParticipanteLinha extends StatelessWidget {
         children: [
           const SizedBox(height: 2),
           Text(participante.email),
+          // CPF sempre; telefone so se existir (concatenado por interpolacao).
           Text(
             'CPF ${Fmt.cpf(participante.cpf)}'
             '${participante.telefone == null || participante.telefone!.isEmpty ? '' : ' · ${Fmt.telefone(participante.telefone)}'}',
@@ -228,6 +265,7 @@ class _ParticipanteLinha extends StatelessWidget {
       trailing: Tela.of(context).ehCelular
           ? PopupMenuButton<String>(
               tooltip: 'Ações',
+              // Ternario que chama uma das duas funcoes.
               onSelected: (valor) =>
                   valor == 'editar' ? onEditar() : onExcluir(),
               itemBuilder: (_) => [
@@ -253,6 +291,7 @@ class _ParticipanteLinha extends StatelessWidget {
                 ),
               ],
             )
+          // Telas maiores: dois botoes de icone lado a lado.
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -272,6 +311,7 @@ class _ParticipanteLinha extends StatelessWidget {
   }
 }
 
+/// Controles "< Pagina X de Y >".
 class _Paginacao extends StatelessWidget {
   const _Paginacao({
     required this.pagina,
@@ -280,6 +320,8 @@ class _Paginacao extends StatelessWidget {
   });
 
   final PagedModel<Participante> pagina;
+
+  /// `null` desabilita o botao correspondente.
   final VoidCallback? onAnterior;
   final VoidCallback? onProxima;
 
@@ -289,6 +331,7 @@ class _Paginacao extends StatelessWidget {
     children: [
       IconButton.outlined(
         style: IconButton.styleFrom(
+          // Cor legivel mesmo quando desabilitado.
           disabledForegroundColor: Theme.of(context)
               .colorScheme
               .onSurfaceVariant
@@ -299,6 +342,7 @@ class _Paginacao extends StatelessWidget {
         tooltip: 'Página anterior',
       ),
       Text(
+        // `number` e base zero; mostramos +1 ao usuario.
         pagina.totalPages == 0
             ? 'Página 1 de 1'
             : 'Página ${pagina.number + 1} de ${pagina.totalPages}',

@@ -1,3 +1,21 @@
+// =============================================================================
+// evento_detail_screen.dart - DETALHE DE UM EVENTO
+// =============================================================================
+//
+// Tela empilhada aberta ao clicar num cartao. Mostra capa, descricao, datas e
+// endereco, e um painel lateral que DEPENDE DO PAPEL:
+//   * organizador  -> ocupacao de vagas + ver inscricoes / editar / excluir
+//   * participante -> a propria inscricao, ou o botao "Quero me inscrever"
+//
+// Estrutura do arquivo:
+//   EventoDetailScreen (+ State)  -> carrega dados e executa as acoes
+//   _Detalhe                      -> dados carregados (evento + extras do papel)
+//   _Conteudo                     -> layout (1 ou 2 colunas)
+//   _Capa, _InfoCapa              -> cabecalho com foto
+//   _PainelOrganizador / _PainelParticipante / _Painel -> caixa de acoes
+//   _Bloco, _Item                 -> cartoes "Quando" e "Onde"
+// =============================================================================
+
 import 'package:material_ui/material_ui.dart';
 
 import '../../core/api_exception.dart';
@@ -28,6 +46,7 @@ class EventoDetailScreen extends StatefulWidget {
     required this.usuario,
   });
 
+  /// Recebe so o id: a tela busca o evento atualizado na API.
   final int eventoId;
   final UsuarioLogado usuario;
 
@@ -35,7 +54,10 @@ class EventoDetailScreen extends StatefulWidget {
   State<EventoDetailScreen> createState() => _EventoDetailScreenState();
 }
 
+/// Tudo o que a tela precisa para desenhar: o evento mais um dado extra que
+/// depende do papel (so um dos dois e preenchido).
 class _Detalhe {
+  /// `{this.ocupadas, this.minha}`: parametros nomeados opcionais.
   const _Detalhe(this.evento, {this.ocupadas, this.minha});
 
   final Evento evento;
@@ -49,40 +71,50 @@ class _Detalhe {
 }
 
 class _EventoDetailScreenState extends State<EventoDetailScreen> {
+  /// Contador que, ao mudar, faz o AsyncView recarregar (ver `reloadKey`).
   int _versao = 0;
 
   /// `true` se algo mudou e a lista anterior precisa recarregar.
   bool _alterou = false;
 
+  /// `true` enquanto o POST de inscricao esta em andamento.
   bool _inscrevendo = false;
 
   bool get _organizador => widget.usuario.ehOrganizador;
 
+  /// Carrega o evento e o dado extra do papel.
   Future<_Detalhe> _carregar() async {
     final services = Services.of(context);
+    // 1) Dados do evento.
     final evento = await services.eventos.buscarPorId(widget.eventoId);
     if (_organizador) {
+      // 2a) Organizador: conta as inscricoes que ocupam vaga.
       final ocupadas = await services.inscricoes.contarAtivasDoEvento(
         evento.id,
       );
       return _Detalhe(evento, ocupadas: ocupadas);
     }
+    // 2b) Participante: procura a inscricao ativa dele neste evento.
     final minha = await services.inscricoes.minhaAtivaNoEvento(evento.id);
     return _Detalhe(evento, minha: minha);
   }
 
+  /// Recarrega a tela e marca que a lista de tras tambem precisa recarregar.
   void _recarregar() => setState(() {
     _versao++;
     _alterou = true;
   });
 
+  /// Abre o formulario de edicao; se salvou, recarrega.
   Future<void> _editar(Evento evento) async {
+    // `push<bool>` empilha a tela e espera o `bool` que ela devolver no `pop`.
     final salvou = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => EventoFormScreen(evento: evento)),
     );
     if (salvou == true && mounted) _recarregar();
   }
 
+  /// Pede confirmacao e exclui o evento.
   Future<void> _excluir(Evento evento) async {
     final confirmado = await confirmar(
       context,
@@ -91,19 +123,23 @@ class _EventoDetailScreenState extends State<EventoDetailScreen> {
           'A exclusão é definitiva. Se o evento tiver inscrições, a API vai '
           'recusar a operação.',
     );
+    // Cancelou (ou a tela foi fechada): nada a fazer.
     if (!confirmado || !mounted) return;
 
     try {
       await Services.of(context).eventos.deletar(evento.id);
       if (!mounted) return;
       mostrarSucesso(context, 'Evento excluído.');
+      // Volta para a lista avisando que algo mudou.
       Navigator.of(context).pop(true);
     } on ApiException catch (e) {
       if (!mounted) return;
+      // Ex.: 409 quando ha inscricoes apontando para o evento.
       mostrarErro(context, e);
     }
   }
 
+  /// Abre a lista de inscricoes ja filtrada por este evento.
   Future<void> _verInscricoes(Evento evento) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -134,14 +170,19 @@ class _EventoDetailScreenState extends State<EventoDetailScreen> {
       if (!mounted) return;
       mostrarErro(context, e);
     } finally {
+      // `finally`: sempre desliga o "inscrevendo", dando certo ou nao.
       if (mounted) setState(() => _inscrevendo = false);
     }
   }
 
+  /// CONCEITO - PopScope: intercepta o "voltar" (botao do navegador/sistema).
+  /// Com `canPop: false` ele nao fecha sozinho; em vez disso chamamos
+  /// `pop(_alterou)` para devolver o bool a tela anterior.
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: false,
     onPopInvokedWithResult: (didPop, _) {
+      // `didPop == false` => o sistema tentou voltar e foi bloqueado.
       if (!didPop) Navigator.of(context).pop(_alterou);
     },
     child: Scaffold(
@@ -163,6 +204,7 @@ class _EventoDetailScreenState extends State<EventoDetailScreen> {
   );
 }
 
+/// Layout da tela com os dados ja carregados (sem logica de rede).
 class _Conteudo extends StatelessWidget {
   const _Conteudo({
     required this.detalhe,
@@ -178,6 +220,8 @@ class _Conteudo extends StatelessWidget {
   final _Detalhe detalhe;
   final bool organizador;
   final bool inscrevendo;
+
+  // Callbacks: a tela-pai passa as funcoes; este widget so as dispara.
   final VoidCallback onVoltar;
   final VoidCallback onEditar;
   final VoidCallback onExcluir;
@@ -189,12 +233,15 @@ class _Conteudo extends StatelessWidget {
     final evento = detalhe.evento;
     final texto = Theme.of(context).textTheme;
 
+    // Coluna principal de informacoes (descricao, quando, onde).
     final informacoes = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // So mostra "Sobre o evento" se a descricao nao for vazia.
         if (evento.descricao.trim().isNotEmpty) ...[
           Text('Sobre o evento', style: texto.titleLarge),
           const SizedBox(height: 10),
+          // `height: 1.6` aumenta o espaco entre as linhas do texto.
           Text(evento.descricao, style: texto.bodyLarge?.copyWith(height: 1.6)),
           const SizedBox(height: 28),
         ],
@@ -222,6 +269,7 @@ class _Conteudo extends StatelessWidget {
           linhas: [
             _Item(
               'Logradouro',
+              // Acrescenta ", numero" so se houver numero.
               evento.endereco.numero == null || evento.endereco.numero!.isEmpty
                   ? evento.endereco.logradouro
                   : '${evento.endereco.logradouro}, ${evento.endereco.numero}',
@@ -234,9 +282,11 @@ class _Conteudo extends StatelessWidget {
       ],
     );
 
+    // Painel de acoes conforme o papel.
     final painel = organizador
         ? _PainelOrganizador(
             evento: evento,
+            // `?? 0`: se a contagem vier nula, usa zero.
             ocupadas: detalhe.ocupadas ?? 0,
             onEditar: onEditar,
             onExcluir: onExcluir,
@@ -260,6 +310,7 @@ class _Conteudo extends StatelessWidget {
           // para o conteudo, pouco para duas colunas.
           child: LayoutBuilder(
             builder: (context, c) => c.maxWidth >= 820
+                // Largo: informacoes a esquerda e painel (340 px) a direita.
                 ? Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -268,6 +319,7 @@ class _Conteudo extends StatelessWidget {
                       SizedBox(width: 340, child: painel),
                     ],
                   )
+                // Estreito: uma coluna, painel primeiro (acao em destaque).
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [painel, const SizedBox(height: 28), informacoes],
@@ -294,14 +346,18 @@ class _Capa extends StatelessWidget {
   Widget build(BuildContext context) {
     final texto = Theme.of(context).textTheme;
     final tela = Tela.of(context);
+    // Altura minima por faixa de tela. `switch` com padroes de enum;
+    // `_` cobre notebook e desktop.
     final alturaMinima = switch (tela) {
       Tela.celular => 270.0,
       Tela.tablet => 290.0,
       _ => 300.0,
     };
+    // Stack: camadas (1 foto, 2 veu escuro, 3 conteudo).
     return Stack(
       children: [
         // A foto e o veu preenchem a capa, qualquer que seja a altura final.
+        // Positioned.fill = ocupa todo o espaco do Stack.
         Positioned.fill(
           child: EventoFoto(
             url: evento.fotoUrl,
@@ -309,6 +365,7 @@ class _Capa extends StatelessWidget {
             semente: evento.id,
           ),
         ),
+        // Veu: degrade transparente -> quase opaco, para o texto branco ler bem.
         Positioned.fill(
           child: DecoratedBox(
             decoration: BoxDecoration(
@@ -331,6 +388,7 @@ class _Capa extends StatelessWidget {
             minWidth: double.infinity,
           ),
           child: SafeArea(
+            // Sem protecao embaixo: so o topo precisa fugir do notch.
             bottom: false,
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -339,6 +397,7 @@ class _Capa extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // Botao de voltar no canto superior esquerdo.
                 Align(
                   alignment: Alignment.topLeft,
                   child: Padding(
@@ -355,6 +414,7 @@ class _Capa extends StatelessWidget {
                     ),
                   ),
                 ),
+                // Bloco de titulo/infos na base da capa.
                 Padding(
                   padding: const EdgeInsets.only(top: 16, bottom: 28),
                   child: ContentWidth(
@@ -373,6 +433,7 @@ class _Capa extends StatelessWidget {
                           const SizedBox(height: 12),
                           Text(
                             evento.titulo,
+                            // Ate 3 linhas; depois corta com "...".
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                             style:
@@ -382,6 +443,7 @@ class _Capa extends StatelessWidget {
                                     ?.copyWith(color: Colors.white),
                           ),
                           const SizedBox(height: 8),
+                          // Wrap: periodo e cidade quebram de linha se faltar espaco.
                           Wrap(
                             spacing: 18,
                             runSpacing: 6,
@@ -410,6 +472,7 @@ class _Capa extends StatelessWidget {
   }
 }
 
+/// Linha pequena "icone + texto" sobre a capa.
 class _InfoCapa extends StatelessWidget {
   const _InfoCapa(this.icone, this.texto);
 
@@ -431,6 +494,7 @@ class _InfoCapa extends StatelessWidget {
   );
 }
 
+/// Painel do organizador: barra de ocupacao + botoes de gestao.
 class _PainelOrganizador extends StatelessWidget {
   const _PainelOrganizador({
     required this.evento,
@@ -441,6 +505,8 @@ class _PainelOrganizador extends StatelessWidget {
   });
 
   final Evento evento;
+
+  /// Vagas ocupadas (pendentes + confirmadas).
   final int ocupadas;
   final VoidCallback onEditar;
   final VoidCallback onExcluir;
@@ -450,6 +516,7 @@ class _PainelOrganizador extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final texto = Theme.of(context).textTheme;
+    // Fracao 0..1 para a barra; `clamp` impede passar de 100%.
     final fracao = evento.vagas == 0
         ? 0.0
         : (ocupadas / evento.vagas).clamp(0.0, 1.0);
@@ -460,6 +527,7 @@ class _PainelOrganizador extends StatelessWidget {
         Text('Ocupação', style: texto.titleMedium),
         const SizedBox(height: 14),
         Row(
+          // `end` alinha pela base: numero grande e texto pequeno juntos.
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(
@@ -481,12 +549,14 @@ class _PainelOrganizador extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 10),
+        // ClipRRect: recorta o filho com cantos arredondados.
         ClipRRect(
           borderRadius: BorderRadius.circular(999),
           child: LinearProgressIndicator(
             value: fracao,
             minHeight: 10,
             backgroundColor: scheme.surfaceContainerHighest,
+            // Vermelha quando lotado.
             color: lotado ? scheme.error : scheme.primary,
           ),
         ),
@@ -510,6 +580,7 @@ class _PainelOrganizador extends StatelessWidget {
           label: const Text('Editar'),
         ),
         const SizedBox(height: 10),
+        // Botao "Excluir" em vermelho (cor de erro) para indicar perigo.
         OutlinedButton.icon(
           onPressed: onExcluir,
           style: OutlinedButton.styleFrom(
@@ -524,6 +595,7 @@ class _PainelOrganizador extends StatelessWidget {
   }
 }
 
+/// Painel do participante: situacao da inscricao ou botao de se inscrever.
 class _PainelParticipante extends StatelessWidget {
   const _PainelParticipante({
     required this.evento,
@@ -533,6 +605,8 @@ class _PainelParticipante extends StatelessWidget {
   });
 
   final Evento evento;
+
+  /// Inscricao ativa do participante (nula = ainda nao inscrito).
   final Inscricao? minha;
   final bool inscrevendo;
   final VoidCallback onInscrever;
@@ -543,6 +617,7 @@ class _PainelParticipante extends StatelessWidget {
     final texto = Theme.of(context).textTheme;
     final inscricao = minha;
 
+    // Caso 1: ja inscrito -> painel escuro com o status.
     if (inscricao != null) {
       return _Painel(
         destaque: true,
@@ -562,6 +637,7 @@ class _PainelParticipante extends StatelessWidget {
           const SizedBox(height: 14),
           Align(
             alignment: Alignment.centerLeft,
+            // `sobreEscuro: true` usa as cores do selo para fundo escuro.
             child: StatusInscricaoChip(
               status: inscricao.status,
               sobreEscuro: true,
@@ -583,6 +659,7 @@ class _PainelParticipante extends StatelessWidget {
       );
     }
 
+    // Caso 2: nao inscrito -> botao de inscricao.
     final encerrado = evento.encerrado;
     return _Painel(
       children: [
@@ -602,6 +679,7 @@ class _PainelParticipante extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         FilledButton.icon(
+          // Desabilitado (null) se encerrado ou se ja esta enviando.
           onPressed: encerrado || inscrevendo ? null : onInscrever,
           icon: inscrevendo
               ? const SizedBox(
@@ -631,6 +709,8 @@ class _PainelParticipante extends StatelessWidget {
   }
 }
 
+/// Caixa arredondada com sombra que agrupa o conteudo do painel.
+/// [destaque] troca o fundo claro pelo degrade escuro da marca.
 class _Painel extends StatelessWidget {
   const _Painel({required this.children, this.destaque = false});
 
@@ -643,6 +723,7 @@ class _Painel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
+        // `color` e `gradient` sao alternativos: um dos dois fica nulo.
         color: destaque ? null : scheme.surfaceContainerLowest,
         gradient: destaque ? Paleta.degradeProfundo : null,
         borderRadius: BorderRadius.circular(20),
@@ -663,12 +744,14 @@ class _Painel extends StatelessWidget {
   }
 }
 
+/// Par "rotulo: valor" exibido nos blocos "Quando" e "Onde".
 class _Item {
   const _Item(this.rotulo, this.valor);
   final String rotulo;
   final String valor;
 }
 
+/// Cartao com titulo + icone e uma lista de [_Item].
 class _Bloco extends StatelessWidget {
   const _Bloco({
     required this.titulo,
@@ -695,6 +778,7 @@ class _Bloco extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Cabecalho do bloco: quadradinho com icone + titulo.
           Row(
             children: [
               Container(
@@ -710,6 +794,7 @@ class _Bloco extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
+          // Uma linha por item: rotulo (largura fixa) + valor (resto).
           for (final linha in linhas)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
@@ -727,6 +812,7 @@ class _Bloco extends StatelessWidget {
                   ),
                   Expanded(
                     child: Text(
+                      // Valor vazio aparece como travessao.
                       linha.valor.isEmpty ? '—' : linha.valor,
                       style: texto.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w600,

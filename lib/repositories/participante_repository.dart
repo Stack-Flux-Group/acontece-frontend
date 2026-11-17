@@ -1,3 +1,7 @@
+// =============================================================================
+// participante_repository.dart - REPOSITORIO DE PARTICIPANTES
+// =============================================================================
+
 import '../core/api_client.dart';
 import '../core/api_exception.dart';
 import '../models/paged_model.dart';
@@ -31,6 +35,7 @@ class ParticipanteRepository {
       query: {'page': page, 'size': size, 'sort': sort},
     );
     if (data is! Map) throw ApiException.badPayload('/participantes');
+    // Converte o JSON paginado, usando `Participante.fromJson` para cada item.
     return PagedModel.fromJson(
       data.cast<String, dynamic>(),
       Participante.fromJson,
@@ -47,21 +52,29 @@ class ParticipanteRepository {
     String termo, {
     int limitePaginas = 5,
   }) async {
+    // Termo normalizado: sem espacos nas pontas e em minusculas.
     final alvo = termo.trim().toLowerCase();
+    // Acumula os participantes de todas as paginas lidas.
     final encontrados = <Participante>[];
     var page = 0;
+    // Le ate `limitePaginas` paginas de 100 itens.
     while (page < limitePaginas) {
       final pagina = await listar(page: page, size: 100);
+      // `addAll` junta uma lista inteira a outra.
       encontrados.addAll(pagina.content);
+      // `break` sai do laco quando nao ha proxima pagina.
       if (!pagina.hasNext) break;
       page++;
     }
+    // Sem termo: devolve todos.
     if (alvo.isEmpty) return encontrados;
     return encontrados
+        // `where` mantem so quem atende a condicao.
         .where(
           (p) =>
               p.nome.toLowerCase().contains(alvo) ||
               p.email.contains(alvo) ||
+              // Para CPF, compara so os digitos digitados.
               p.cpf.contains(alvo.replaceAll(RegExp(r'[^0-9]'), '')),
         )
         .toList(growable: false);
@@ -93,6 +106,7 @@ class ParticipanteRepository {
   Future<Participante> atualizar(int id, ParticipantePatch patch) async {
     final data = await _client.patch(
       '/participantes/$id',
+      // So os campos que mudaram (ver `ParticipantePatch.toJson`).
       body: patch.toJson(),
     );
     if (data is! Map) throw ApiException.badPayload('/participantes/$id');
