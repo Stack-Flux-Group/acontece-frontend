@@ -164,6 +164,7 @@ final _pedidos = <http.Request>[];
 Widget _appCom(
   Map<String, http.Response> Function(http.Request) responder, {
   Papel? logado,
+  double reservaInferior = 0,
 }) {
   // Zera o historico de pedidos a cada teste.
   _pedidos.clear();
@@ -191,7 +192,7 @@ Widget _appCom(
   return Services(
     client: ApiClient(client: mock),
     storage: storage,
-    child: const AconteceApp(),
+    child: AconteceApp(reservaInferior: reservaInferior),
   );
 }
 
@@ -1195,6 +1196,80 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Confirmar nova senha *'), findsOneWidget);
+    });
+  });
+
+  group('selo do Netlify', () {
+    // Retangulo que o selo cobre no canto inferior direito (194 x 61 px,
+    // medido no site publicado).
+    Rect selo(WidgetTester tester) {
+      final tela = tester.view.physicalSize;
+      return Rect.fromLTWH(tela.width - 194, tela.height - 61, 194, 61);
+    }
+
+    const lista = '''
+    [{"id":1,"titulo":"Feira","descricao":"",
+      "dataInicio":"2026-12-04T17:00:00","dataFim":"2026-12-08T17:00:00",
+      "vagas":1,"vagasDisponiveis":1,"endereco":{"cep":"85601-000","logradouro":"Rua A","bairro":"Centro",
+      "cidade":"Francisco Beltrao","uf":"PR","numero":null},"fotoUrl":null}]
+    ''';
+
+    for (final (nome, largura, altura) in const [
+      ('desktop', 1400.0, 900.0),
+      ('celular', 390.0, 800.0),
+    ]) {
+      testWidgets('$nome: o botao Novo evento fica acima do selo', (
+        tester,
+      ) async {
+        _tela(tester, largura: largura, altura: altura);
+        await tester.pumpWidget(
+          _appCom(
+            (_) => {'/eventos': _okLista(lista)},
+            logado: Papel.organizador,
+            reservaInferior: 64,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final fab = tester.getRect(find.text('Novo evento'));
+        expect(fab.overlaps(selo(tester)), isFalse);
+      });
+    }
+
+    testWidgets('celular: a barra de abas nao fica sob o selo', (tester) async {
+      _tela(tester, largura: 390, altura: 800);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {'/eventos': _okLista(lista)},
+          logado: Papel.organizador,
+          reservaInferior: 64,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Os rotulos das abas ficam acima da faixa reservada ao selo.
+      for (final rotulo in ['Eventos', 'Inscrições', 'Participantes']) {
+        expect(
+          tester.getRect(find.text(rotulo).last).overlaps(selo(tester)),
+          isFalse,
+          reason: 'aba $rotulo sob o selo',
+        );
+      }
+    });
+
+    testWidgets('sem reserva o botao fica na posicao padrao', (tester) async {
+      _tela(tester, largura: 1400, altura: 900);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {'/eventos': _okLista(lista)},
+          logado: Papel.organizador,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Sem reserva, o botao encosta no canto, onde o selo ficaria.
+      final fab = tester.getRect(find.text('Novo evento'));
+      expect(fab.overlaps(selo(tester)), isTrue);
     });
   });
 

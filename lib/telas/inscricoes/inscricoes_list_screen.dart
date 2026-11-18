@@ -13,6 +13,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../infraestrutura/api_exception.dart';
+import '../../infraestrutura/area_selo.dart';
 import '../../infraestrutura/formatters.dart';
 import '../../infraestrutura/theme.dart';
 import '../../modelos_da_api/auth.dart';
@@ -269,7 +270,7 @@ class _InscricoesListScreenState extends State<InscricoesListScreen> {
               builder: (context, pagina, recarregar) => RefreshIndicator(
                 onRefresh: recarregar,
                 child: ListView(
-                  padding: const EdgeInsets.only(bottom: 48),
+                  padding: folgaFinalDaLista(context),
                   children: [
                     ContentWidth(
                       child: Column(

@@ -18,6 +18,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../infraestrutura/api_exception.dart';
+import '../../infraestrutura/area_selo.dart';
 import '../../infraestrutura/theme.dart';
 import '../../infraestrutura/validators.dart';
 import '../../modelos_da_api/auth.dart';
@@ -133,7 +134,7 @@ class _TrocarSenhaScreenState extends State<TrocarSenhaScreen> {
       body: AbsorbPointer(
         absorbing: _salvando,
         child: ListView(
-          padding: const EdgeInsets.only(bottom: 48),
+          padding: folgaFinalDaLista(context),
           children: [
             // Largura maxima de 640 para o formulario nao esticar demais.
             ContentWidth(

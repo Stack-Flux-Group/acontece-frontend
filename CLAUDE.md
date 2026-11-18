@@ -88,6 +88,7 @@ Dependências diretas: `material_ui`, `http`, `intl`, `web`, `cupertino_icons`. 
 
 - **`heroTag` nos FABs.** As abas vivem num `IndexedStack`; FAB sem `heroTag` própria quebra a navegação.
 - **Overflow com a fonte de teste.** A fonte dos testes de widget é bem mais larga que a real; `Row` com texto sem `Expanded`/`Flexible` estoura lá. Prefira `Wrap` ou `Expanded`.
+- **Selo "Powered by Netlify".** Em `*.netlify.app` o Netlify injeta um iframe fixo no canto inferior direito (~194×61 px, z-index máximo) que cobre FAB, abas da barra inferior e o fim das listas. `ReservaInferior` (`infraestrutura/area_selo.dart`, aplicada no `MaterialApp.builder`) soma 64 px a `MediaQuery.padding/viewPadding` só nesse domínio; FAB, snackbar e `NavigationBar` já respeitam isso. Listas rolavéis usam `folgaFinalDaLista(context, base: N)` em vez de `EdgeInsets.only(bottom: N)`. Tela nova com FAB ou botão no rodapé deve seguir o mesmo caminho.
 - **Datas nunca convertem fuso.** Ver abaixo.
 
 ## Datas: o ponto mais fácil de errar
@@ -115,7 +116,7 @@ Instância gratuita do Render que hiberna; medido 146–148 s (último em 15/11/
 
 ## Testes
 
-172 testes:
+176 testes:
 
 - `test/validators_test.dart` — validações espelhadas do Bean Validation (inclui senha 8–72)
 - `test/api_test.dart` — datas, envelope de erro, 401/403, modelos, JWT/sessão, paginação, URL

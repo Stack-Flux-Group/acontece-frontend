@@ -9,6 +9,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../infraestrutura/api_exception.dart';
+import '../../infraestrutura/area_selo.dart';
 import '../../infraestrutura/formatters.dart';
 import '../../infraestrutura/theme.dart';
 import '../../modelos_da_api/auth.dart';
@@ -156,7 +157,7 @@ class _ParticipantesListScreenState extends State<ParticipantesListScreen> {
               label: const Text('Novo participante'),
             ),
             builder: (context, pagina, recarregar) => ListView(
-              padding: const EdgeInsets.only(bottom: 96),
+              padding: folgaFinalDaLista(context, base: 96),
               children: [
                 ContentWidth(
                   child: Column(

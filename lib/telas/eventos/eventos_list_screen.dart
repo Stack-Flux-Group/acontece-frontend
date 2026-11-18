@@ -14,6 +14,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../infraestrutura/api_dates.dart';
+import '../../infraestrutura/area_selo.dart';
 import '../../infraestrutura/formatters.dart';
 import '../../infraestrutura/theme.dart';
 import '../../modelos_da_api/auth.dart';
@@ -235,7 +236,7 @@ class _EventosListScreenState extends State<EventosListScreen> {
                 onRefresh: recarregar,
                 child: ListView(
                   // Folga embaixo para o FAB nao cobrir o ultimo cartao.
-                  padding: const EdgeInsets.only(bottom: 96),
+                  padding: folgaFinalDaLista(context, base: 96),
                   children: [
                     ContentWidth(
                       child: Column(

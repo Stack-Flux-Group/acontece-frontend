@@ -22,6 +22,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../infraestrutura/api_exception.dart';
+import '../../infraestrutura/area_selo.dart';
 import '../../infraestrutura/formatters.dart';
 import '../../infraestrutura/theme.dart';
 import '../../modelos_da_api/auth.dart';
@@ -361,7 +362,7 @@ class _Conteudo extends StatelessWidget {
           );
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: 56),
+      padding: folgaFinalDaLista(context, base: 56),
       children: [
         _Capa(evento: evento, onVoltar: onVoltar),
         const SizedBox(height: 28),

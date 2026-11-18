@@ -10,6 +10,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../infraestrutura/api_exception.dart';
+import '../../infraestrutura/area_selo.dart';
 import '../../infraestrutura/formatters.dart';
 import '../../infraestrutura/theme.dart';
 import '../../modelos_da_api/auth.dart';
@@ -101,7 +102,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
             reloadKey: _versao,
             load: _carregar,
             builder: (context, participante, _) => ListView(
-              padding: const EdgeInsets.only(bottom: 48),
+              padding: folgaFinalDaLista(context),
               children: [
                 // Largura maxima de 720 para o conteudo nao esticar demais.
                 ContentWidth(

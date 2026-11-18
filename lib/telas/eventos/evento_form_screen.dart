@@ -15,6 +15,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../infraestrutura/api_dates.dart';
 import '../../infraestrutura/api_exception.dart';
+import '../../infraestrutura/area_selo.dart';
 import '../../infraestrutura/formatters.dart';
 import '../../infraestrutura/theme.dart';
 import '../../infraestrutura/validators.dart';
@@ -220,7 +221,7 @@ class _EventoFormScreenState extends State<EventoFormScreen> {
       body: AbsorbPointer(
         absorbing: _salvando,
         child: ListView(
-          padding: const EdgeInsets.only(bottom: 48),
+          padding: folgaFinalDaLista(context),
           children: [
             // Largura maxima de 720 para o formulario nao esticar demais.
             ContentWidth(

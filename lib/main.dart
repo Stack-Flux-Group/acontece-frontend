@@ -35,6 +35,8 @@ import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
 // Imports relativos (sem `package:`) apontam para arquivos do proprio app.
+// Espaco reservado para o selo do Netlify no canto inferior da pagina.
+import 'infraestrutura/area_selo.dart';
 // Tema visual (cores, fontes) do app: daqui vem a classe `AppTheme`.
 import 'infraestrutura/theme.dart';
 // Tela de login/cadastro, exibida quando ninguem esta logado.
@@ -77,7 +79,11 @@ void main() {
 class AconteceApp extends StatefulWidget {
   /// Construtor. `const` permite criar instancias constantes;
   /// `super.key` repassa a chave opcional (Key) para a classe-mae.
-  const AconteceApp({super.key});
+  const AconteceApp({super.key, this.reservaInferior});
+
+  /// Espaco reservado na base da tela. Sem valor, usa [reservaInferiorPadrao]
+  /// (o selo do Netlify); os testes informam um valor explicito.
+  final double? reservaInferior;
 
   /// `@override` indica que estamos substituindo um metodo da classe-mae.
   /// `createState` diz ao Flutter qual objeto State usar para este widget.
@@ -135,6 +141,13 @@ class _AconteceAppState extends State<AconteceApp> {
       supportedLocales: const [Locale('pt', 'BR'), Locale('pt')],
       // Idioma efetivamente usado: portugues do Brasil.
       locale: const Locale('pt', 'BR'),
+
+      // `builder` envolve o Navigator: a reserva vale para todas as telas,
+      // inclusive as empilhadas por cima da casca.
+      builder: (context, child) => ReservaInferior(
+        reserva: widget.reservaInferior ?? reservaInferiorPadrao(),
+        child: child ?? const SizedBox.shrink(),
+      ),
 
       // `home` e a primeira tela do app.
       // CONCEITO - ListenableBuilder: reconstroi o `builder` toda vez que o

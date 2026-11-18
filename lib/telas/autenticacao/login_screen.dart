@@ -79,7 +79,13 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Center(
                 // Rolavel: em janela baixa o formulario nao estoura.
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(40),
+                  // Soma a reserva do selo do Netlify embaixo.
+                  padding: EdgeInsets.fromLTRB(
+                    40,
+                    40,
+                    40,
+                    40 + MediaQuery.paddingOf(context).bottom,
+                  ),
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 420),
                     child: formulario,

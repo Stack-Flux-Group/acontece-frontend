@@ -15,6 +15,7 @@
 
 import 'package:material_ui/material_ui.dart';
 
+import '../infraestrutura/area_selo.dart';
 import '../infraestrutura/theme.dart';
 import '../modelos_da_api/auth.dart';
 import '../services.dart';
@@ -113,6 +114,11 @@ class _HomeShellState extends State<HomeShell> {
         // SafeArea evita areas do sistema (notch, barra de status).
         body: SafeArea(child: conteudo),
         bottomNavigationBar: NavigationBar(
+          // Com area reservada embaixo (selo do Netlify), a barra fica mais
+          // baixa para nao tomar tanto da tela do celular.
+          height: MediaQuery.paddingOf(context).bottom >= alturaSeloNetlify
+              ? 64
+              : null,
           selectedIndex: _aba,
           // Ao tocar num destino, guarda o indice e redesenha.
           onDestinationSelected: (i) => setState(() => _aba = i),
@@ -132,12 +138,18 @@ class _HomeShellState extends State<HomeShell> {
     return Scaffold(
       body: Row(
         children: [
-          _BarraLateral(
-            compacta: tela.ehTablet,
-            abas: _abas,
-            selecionada: _aba,
-            usuario: widget.usuario,
-            onSelecionar: (i) => setState(() => _aba = i),
+          // A barra fica a esquerda, longe do selo do canto direito: sem a
+          // reserva inferior, o cartao do usuario continua no rodape.
+          MediaQuery.removePadding(
+            context: context,
+            removeBottom: true,
+            child: _BarraLateral(
+              compacta: tela.ehTablet,
+              abas: _abas,
+              selecionada: _aba,
+              usuario: widget.usuario,
+              onSelecionar: (i) => setState(() => _aba = i),
+            ),
           ),
           // Expanded: o conteudo ocupa toda a largura que sobrar.
           Expanded(child: conteudo),
