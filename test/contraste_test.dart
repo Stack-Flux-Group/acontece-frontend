@@ -12,10 +12,10 @@
 // ficar ilegivel, o teste quebra.
 // =============================================================================
 
-import 'package:acontece_frontend/core/theme.dart';
-import 'package:acontece_frontend/models/evento.dart';
-import 'package:acontece_frontend/models/status_inscricao.dart';
-import 'package:acontece_frontend/widgets/status_chip.dart';
+import 'package:acontece_frontend/infraestrutura/theme.dart';
+import 'package:acontece_frontend/modelos_da_api/evento.dart';
+import 'package:acontece_frontend/modelos_da_api/status_inscricao.dart';
+import 'package:acontece_frontend/componentes_visuais/status_chip.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 

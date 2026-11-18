@@ -8,7 +8,7 @@
 ![Dart](https://img.shields.io/badge/Dart-3.14-0175C2?logo=dart&logoColor=white)
 ![Plataforma](https://img.shields.io/badge/plataforma-Web-26658C)
 ![Material 3](https://img.shields.io/badge/UI-Material%203-54ACBF)
-![Testes](https://img.shields.io/badge/testes-138%20passando-023859)
+![Testes](https://img.shields.io/badge/testes-172%20passando-023859)
 
 [API em produção](https://acontece-api.onrender.com) ·
 [Documentação da API (Swagger)](https://acontece-api.onrender.com/swagger-ui/index.html) ·
@@ -83,10 +83,11 @@ O site mostra telas diferentes conforme o **papel** de quem está logado.
 |---|---|---|
 | **Acesso** | Criar conta e entrar | Entrar (conta criada pela API) |
 | **Eventos** | Ver catálogo, buscar por título, filtrar por período | Tudo do participante + criar, editar e excluir eventos |
-| **Detalhe do evento** | Endereço, datas e botão **Quero me inscrever**; mostra o status da própria inscrição | Endereço, datas, **ocupação de vagas**, atalho para as inscrições do evento |
-| **Inscrições** | **Minhas inscrições**, com filtro por evento e status | Todas as inscrições, com filtros por evento, participante e status; **confirmar** ou **cancelar** |
+| **Detalhe do evento** | Endereço, datas, **vagas preenchidas e disponíveis** (ex.: 7/10) e botão **Quero me inscrever** (bloqueado quando lotou); mostra o status da própria inscrição e permite **cancelá-la** | Endereço, datas, **ocupação de vagas**, atalho para as inscrições do evento |
+| **Inscrições** | **Minhas inscrições**, com filtro por evento e status; **cancelar** as ativas | Todas as inscrições, com filtros por evento, participante e status; **confirmar** ou **cancelar** |
 | **Participantes** | — | Lista paginada e ordenável; cadastrar, editar e excluir |
-| **Perfil** | **Meu perfil**: ver e editar os próprios dados, excluir a conta | — |
+| **Perfil e conta** | **Meu perfil**: ver e editar os próprios dados, excluir a conta | — |
+| **Senha** | **Alterar senha** (exige a senha atual) | **Alterar senha** |
 
 Outros comportamentos:
 
@@ -103,7 +104,7 @@ Outros comportamentos:
 | Pacote | Uso | Por que esta escolha |
 |---|---|---|
 | [`material_ui`](https://pub.dev/packages/material_ui) | Componentes Material 3 | A biblioteca Material saiu do SDK a partir do Flutter 3.47; os imports são `package:material_ui/material_ui.dart` |
-| [`http`](https://pub.dev/packages/http) | Cliente HTTP | Um único ponto de rede (`core/api_client.dart`); não há necessidade do que o `dio` acrescenta |
+| [`http`](https://pub.dev/packages/http) | Cliente HTTP | Um único ponto de rede (`infraestrutura/api_client.dart`); não há necessidade do que o `dio` acrescenta |
 | [`intl`](https://pub.dev/packages/intl) | Datas e números em pt-BR | Formatação localizada e serialização do `LocalDateTime` da API |
 | [`web`](https://pub.dev/packages/web) | `localStorage` do navegador | Guarda a sessão sem plugin nativo (plugins exigem Modo de Desenvolvedor no Windows) |
 | `cupertino_icons` | Ícones | Padrão do Flutter |
@@ -120,7 +121,7 @@ Decisões deliberadas para manter o projeto enxuto:
 
 ## Identidade visual
 
-A paleta da marca é centralizada na classe `Paleta`, em [`lib/core/theme.dart`](lib/core/theme.dart), e dela deriva o `ColorScheme` dos temas claro e escuro.
+A paleta da marca é centralizada na classe `Paleta`, em [`lib/infraestrutura/theme.dart`](lib/infraestrutura/theme.dart), e dela deriva o `ColorScheme` dos temas claro e escuro.
 
 | Cor | Hex | Nome | Onde aparece |
 |---|---|---|---|
@@ -172,7 +173,7 @@ flutter pub get
 flutter run -d chrome --web-port=5173
 ```
 
-> **Importante — a porta não é opcional.** A API só aceita chamadas do navegador vindas de origens liberadas no CORS: `http://localhost:5173`, `http://localhost:3000` e `https://acontece-frontend.vercel.app`. Em qualquer outra porta o navegador bloqueia as requisições e o site mostra **"Sem conexão com a API"**.
+> **Importante — a porta não é opcional.** A API só aceita chamadas do navegador vindas de origens liberadas no CORS: `http://localhost:5173`, `http://localhost:3000` e `https://acontece.netlify.app`. Em qualquer outra porta o navegador bloqueia as requisições e o site mostra **"Sem conexão com a API"**.
 
 **4. Entre ou crie uma conta**
 
@@ -220,7 +221,7 @@ O endereço da API é definido em tempo de compilação com `--dart-define`:
 |---|---|---|
 | `API_BASE_URL` | `https://acontece-api.onrender.com` | Endereço base da API. Aceita URL absoluta ou caminho relativo (ex.: `/api`, se houver um proxy na mesma origem) |
 
-Constantes de rede em [`lib/core/api_config.dart`](lib/core/api_config.dart):
+Constantes de rede em [`lib/infraestrutura/api_config.dart`](lib/infraestrutura/api_config.dart):
 
 | Constante | Valor | Motivo |
 |---|---|---|
@@ -263,13 +264,15 @@ API responde 401 (token vencido)? ──▶ sessão encerrada, volta à tela de 
 | Rota | Quem pode |
 |---|---|
 | `POST /auth/login`, `POST /participantes` | Qualquer pessoa (sem login) |
-| `GET /evento/**` | Qualquer usuário logado |
-| `POST/PUT/DELETE /evento/**` | Organizador |
+| `GET /eventos`, `GET /eventos/{id}` | Qualquer usuário logado |
+| `POST/PUT/DELETE /eventos` | Organizador |
+| `GET /me`, `PATCH /me/senha` | Qualquer usuário logado |
 | `GET /participantes` | Organizador |
 | `GET/PATCH/DELETE /participantes/{id}` | Organizador ou o próprio participante |
 | `POST /inscricoes` | Participante, sempre em nome próprio |
 | `GET /inscricoes` | Usuário logado (o participante vê só as dele) |
 | `PATCH /inscricoes/{id}/status` | Organizador |
+| `PATCH /inscricoes/{id}/cancelar` | Participante, só a própria inscrição |
 
 A interface só mostra as ações que o papel permite, para que o usuário não receba um erro 403.
 
@@ -280,28 +283,28 @@ A interface só mostra as ações que o papel permite, para que o usuário não 
 O código é organizado em camadas, e cada camada só conhece a de dentro:
 
 ```text
-┌──────────────────────────────────────────────────────────┐
-│ screens/ + widgets/        Interface (telas e componentes) │
-├──────────────────────────────────────────────────────────┤
-│ services.dart              Entrega sessão e repositórios   │
-├──────────────────────────────────────────────────────────┤
-│ repositories/              Uma classe por recurso da API   │
-├──────────────────────────────────────────────────────────┤
-│ models/                    Espelho dos DTOs da API         │
-├──────────────────────────────────────────────────────────┤
-│ core/                      Rede, sessão, erros, datas, tema│
-└──────────────────────────────────────────────────────────┘
-                              │ HTTPS + JWT
-                              ▼
-                        acontece-api
+┌──────────────────────────────────────────────────────────────────┐
+│ telas/ + componentes_visuais/   Interface (telas e componentes)  │
+├──────────────────────────────────────────────────────────────────┤
+│ services.dart                   Entrega sessão e repositórios    │
+├──────────────────────────────────────────────────────────────────┤
+│ acesso_a_api/                   Uma classe por recurso da API    │
+├──────────────────────────────────────────────────────────────────┤
+│ modelos_da_api/                 Espelho dos DTOs da API          │
+├──────────────────────────────────────────────────────────────────┤
+│ infraestrutura/                 Rede, sessão, erros, datas, tema │
+└──────────────────────────────────────────────────────────────────┘
+                                │ HTTPS + JWT
+                                ▼
+                          acontece-api
 ```
 
 Princípios que guiam o código:
 
-- **`core/api_client.dart` é o único ponto de rede.** Monta a URL, injeta o token, aplica o timeout, decodifica UTF-8 e converte qualquer falha em `ApiException`. Nenhuma tela usa `package:http` diretamente.
+- **`infraestrutura/api_client.dart` é o único ponto de rede.** Monta a URL, injeta o token, aplica o timeout, decodifica UTF-8 e converte qualquer falha em `ApiException`. Nenhuma tela usa `package:http` diretamente.
 - **Os repositórios isolam as peculiaridades da API.** Rotas com verbo no caminho, barra final obrigatória e regras de permissão ficam documentadas ali, e as telas só chamam métodos com nome de domínio.
-- **`widgets/async_view.dart` padroniza os três estados** de qualquer tela que busca dados: carregando, erro com "tentar de novo" e vazio.
-- **`core/sessao.dart`** guarda quem está logado. A raiz do app (`main.dart`) escuta a sessão e alterna entre a tela de entrada e a casca do site (`HomeShell`), que monta as abas conforme o papel.
+- **`componentes_visuais/async_view.dart` padroniza os três estados** de qualquer tela que busca dados: carregando, erro com "tentar de novo" e vazio.
+- **`infraestrutura/sessao.dart`** guarda quem está logado. A raiz do app (`main.dart`) escuta a sessão e alterna entre a tela de entrada e a casca do site (`HomeShell`), que monta as abas conforme o papel.
 
 ---
 
@@ -313,7 +316,7 @@ acontece-frontend/
 │   ├── main.dart                         # Ponto de entrada: tema, locale pt-BR, login ↔ site
 │   ├── services.dart                     # InheritedWidget com a sessão e os repositórios
 │   │
-│   ├── core/                             # Infraestrutura, sem interface
+│   ├── infraestrutura/               # Infraestrutura, sem interface
 │   │   ├── api_config.dart               # API_BASE_URL, timeout e tempo do aviso de cold start
 │   │   ├── api_client.dart               # Único ponto de rede (token, timeout, erros)
 │   │   ├── api_exception.dart            # Envelope de erro da API, fieldErrors, 401/403
@@ -326,7 +329,7 @@ acontece-frontend/
 │   │   ├── formatters.dart               # Máscaras de CPF, CEP, telefone e datas
 │   │   └── theme.dart                    # Paleta, temas claro/escuro e logo
 │   │
-│   ├── models/                           # Espelho dos DTOs da API
+│   ├── modelos_da_api/               # Espelho dos DTOs da API
 │   │   ├── auth.dart                     # Papel, LoginInput, TokenResponse, UsuarioLogado
 │   │   ├── evento.dart                   # Evento e EventoInput (criar/editar)
 │   │   ├── endereco.dart                 # Endereço preenchido pelo ViaCEP
@@ -335,14 +338,14 @@ acontece-frontend/
 │   │   ├── status_inscricao.dart         # Enum e máquina de estados
 │   │   └── paged_model.dart              # Paginação do Spring Data
 │   │
-│   ├── repositories/                     # Acesso à API, um por recurso
+│   ├── acesso_a_api/                 # Acesso à API, um por recurso
 │   │   ├── auth_repository.dart          # /auth/login
-│   │   ├── evento_repository.dart        # /evento/*
+│   │   ├── evento_repository.dart        # /eventos
 │   │   ├── participante_repository.dart  # /participantes
 │   │   └── inscricao_repository.dart     # /inscricoes
 │   │
-│   ├── screens/                          # Telas
-│   │   ├── auth/
+│   ├── telas/                        # Telas
+│   │   ├── autenticacao/
 │   │   │   └── login_screen.dart         # Entrar e criar conta
 │   │   ├── home_shell.dart               # Navegação por papel (barra lateral / inferior)
 │   │   ├── eventos/
@@ -356,7 +359,7 @@ acontece-frontend/
 │   │       ├── participante_form_screen.dart  # Cadastro e edição
 │   │       └── perfil_screen.dart             # Meu perfil (participante)
 │   │
-│   └── widgets/                          # Componentes reutilizáveis
+│   └── componentes_visuais/          # Componentes reutilizáveis
 │       ├── async_view.dart               # Carregando / erro / vazio
 │       ├── aviso_servidor_lento.dart     # Aviso de cold start nos formulários
 │       ├── cabecalho_pagina.dart         # Cabeçalho em degradê das páginas
@@ -382,7 +385,7 @@ acontece-frontend/
 
 ## Testes
 
-A suíte tem **138 testes**, todos rodando sem acesso à rede:
+A suíte tem **172 testes**, todos rodando sem acesso à rede:
 
 | Arquivo | O que cobre |
 |---|---|
@@ -401,7 +404,7 @@ flutter test --plain-name "participante se inscreve pelo detalhe do evento"
 
 ## Layout responsivo
 
-As faixas de largura ficam no enum `Tela`, em [`lib/core/theme.dart`](lib/core/theme.dart). Nenhuma tela compara larguras soltas: todas perguntam a `Tela.of(context)`.
+As faixas de largura ficam no enum `Tela`, em [`lib/infraestrutura/theme.dart`](lib/infraestrutura/theme.dart). Nenhuma tela compara larguras soltas: todas perguntam a `Tela.of(context)`.
 
 | Faixa | Largura | Navegação | Grade de eventos |
 |---|---|---|---|
@@ -420,12 +423,13 @@ A grade calcula as colunas pela largura que sobra ao conteúdo, com no mínimo 3
 flutter build web --release
 ```
 
-O resultado fica em **`build/web`** e é um site estático: basta publicar o conteúdo dessa pasta em qualquer hospedagem (Vercel, Netlify, GitHub Pages...).
+O resultado fica em **`build/web`** e é um site estático: basta publicar o conteúdo dessa pasta em qualquer hospedagem (Netlify, Vercel, GitHub Pages...).
 
 Pontos de atenção:
 
 - **O build precisa ser feito localmente.** Hospedagens de site estático não têm Flutter instalado, e `build/` está no `.gitignore`. Um deploy que tente compilar a partir do Git falha com `flutter: command not found`.
-- **O domínio precisa estar liberado no CORS da API.** Hoje a origem de produção liberada é `https://acontece-frontend.vercel.app`. Publicar em outro domínio exige adicioná-lo à variável `CORS_ALLOWED_ORIGINS` da API.
+- **Publique a API nova antes do front.** O site usa as rotas `/eventos`, `/me` e `/inscricoes/{id}/cancelar`; contra a versão antiga da API a lista de eventos volta 404.
+- **O domínio precisa estar liberado no CORS da API.** Hoje a origem de produção liberada é `https://acontece.netlify.app`. Publicar em outro domínio exige adicioná-lo à variável `CORS_ALLOWED_ORIGINS` da API.
 - **Netlify:** o arquivo `web/_redirects` é copiado para o build e já contém o fallback de SPA (`/* /index.html 200`).
 
 ---
@@ -436,19 +440,22 @@ Comportamentos não óbvios da API e onde o front-end lida com eles:
 
 | Comportamento | Onde é tratado |
 |---|---|
-| `POST /inscricoes` aceita só `eventoId`; o participante vem do token | `models/inscricao.dart` (`InscricaoInput`) |
+| `POST /inscricoes` aceita só `eventoId`; o participante vem do token | `modelos_da_api/inscricao.dart` (`InscricaoInput`) |
 | `GET /inscricoes` para participante ignora `participanteId` e devolve só as dele | `inscricoes_list_screen.dart` |
-| A ocupação de vagas só pode ser contada pelo organizador | `InscricaoRepository.contarAtivasDoEvento` |
+| Todo evento traz `vagasDisponiveis`; a ocupação (`vagas − vagasDisponiveis`) aparece para os dois papéis e o botão de inscrição trava quando zera | `modelos_da_api/evento.dart` |
+| `GET /eventos` é paginado (máx. 100 por página) e os filtros `titulo`, `inicio` e `fim` se somam | `EventoRepository.listar` / `listarTodos` |
+| O participante cancela a própria inscrição em rota própria (`PATCH /inscricoes/{id}/cancelar`, sem corpo); evento encerrado volta 400 | `InscricaoRepository.cancelar` |
+| `GET /me` devolve o nome (o login não devolve) | `Sessao.sincronizar` |
+| 429 depois de 5 erros de senha do mesmo IP e e-mail, por 15 minutos (login e troca de senha) | `ApiException` |
 | Respostas 401/403 do filtro de segurança chegam **sem corpo** | `ApiException` (mensagens próprias) |
-| Não existe rota para trocar a senha; o `PATCH` de participante não aceita `senha` | `participante_form_screen.dart` |
-| `GET /evento/listar/` exige a barra final e devolve todos os eventos, sem paginação | `evento_repository.dart` |
-| `POST /evento/criar` responde 200, e não 201 | `evento_repository.dart` |
+| A senha se troca em `PATCH /me/senha` (exige a atual; nova de 8 a 72, diferente da atual); o `PATCH` de participante não aceita `senha` | `trocar_senha_screen.dart` |
+| As rotas antigas `/evento/...` continuam na API, mas estão obsoletas e este app não as usa | `evento_repository.dart` |
 | Endereço vem do ViaCEP: o cliente envia só `cep` e `numero` | `evento_form_screen.dart` |
-| Datas são `LocalDateTime` sem fuso e com fração de segundo (`2026-12-04T17:06:44.19`) | `core/api_dates.dart` |
+| Datas são `LocalDateTime` sem fuso e com fração de segundo (`2026-12-04T17:06:44.19`) | `infraestrutura/api_dates.dart` |
 | "Agora" é comparado no fuso `America/Sao_Paulo`, como o `Clock` da API | `ApiDates.nowInSaoPaulo` |
-| `PUT /evento/atualizar/{id}` substitui todos os campos | `EventoInput.fromEvento` |
+| `PUT /eventos/{id}` substitui todos os campos | `EventoInput.fromEvento` |
 | O `telefone` só é apagado enviando `""`; `null` mantém o valor | `ParticipantePatch` |
-| Status: `PENDENTE → CONFIRMADA/CANCELADA`, `CONFIRMADA → CANCELADA`, `CANCELADA` é final | `models/status_inscricao.dart` |
+| Status: `PENDENTE → CONFIRMADA/CANCELADA`, `CONFIRMADA → CANCELADA`, `CANCELADA` é final | `modelos_da_api/status_inscricao.dart` |
 
 ---
 
@@ -473,7 +480,7 @@ Comportamentos não óbvios da API e onde o front-end lida com eles:
 - **Idioma:** a interface e a documentação são em **português do Brasil**, com acentos. Comentários de código são escritos sem acentuação.
 - **Qualidade:** antes de cada commit, `flutter analyze` precisa terminar sem problemas e `flutter test` precisa passar.
 - **Formatação:** `dart format lib test`.
-- **Rede:** nunca use `package:http` fora de `core/api_client.dart`; peculiaridades de rota vão para o repositório correspondente.
+- **Rede:** nunca use `package:http` fora de `infraestrutura/api_client.dart`; peculiaridades de rota vão para o repositório correspondente.
 - **Datas:** nunca converta fuso. Use `ApiDates.parse` e `ApiDates.format`.
 - **Erros:** exiba a mensagem da API como ela vem; não reescreva no cliente.
 - **Botões flutuantes:** todo `FloatingActionButton` dentro de uma aba precisa de `heroTag` própria, porque as abas coexistem num `IndexedStack`.

@@ -24,12 +24,12 @@
 
 import 'dart:convert';
 
-import 'package:acontece_frontend/core/api_client.dart';
-import 'package:acontece_frontend/core/token_storage.dart';
+import 'package:acontece_frontend/infraestrutura/api_client.dart';
+import 'package:acontece_frontend/infraestrutura/token_storage.dart';
 import 'package:acontece_frontend/main.dart';
-import 'package:acontece_frontend/models/auth.dart';
+import 'package:acontece_frontend/modelos_da_api/auth.dart';
 import 'package:acontece_frontend/services.dart';
-import 'package:acontece_frontend/widgets/evento_card.dart';
+import 'package:acontece_frontend/componentes_visuais/evento_card.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 // `MockClient`: cliente HTTP de mentira, vindo do pacote http.
@@ -42,27 +42,81 @@ import 'package:material_ui/material_ui.dart';
 /// corpos que a API em producao devolve. Assim a UI e exercitada de verdade
 /// (login, papeis, datas naive com fracao de segundo) sem depender da rede.
 
-/// Resposta real de `GET /evento/listar/`.
+/// Eventos no formato de `GET /eventos` (itens de `content`).
 /// (Texto de varias linhas com ''' ... '''.)
 const _eventosJson = '''
 [{"id":1,"titulo":"Radar Tech","descricao":"Evento da Semana Academica",
   "dataInicio":"2026-12-04T17:06:44.19","dataFim":"2026-12-08T17:06:44.19",
-  "vagas":200,
+  "vagas":200,"vagasDisponiveis":200,
   "endereco":{"cep":"85601-000","logradouro":"Avenida Julio Assis Cavalheiro",
     "bairro":"Centro","cidade":"Francisco Beltrao","uf":"PR","numero":"02"},
   "fotoUrl":null},
  {"id":2,"titulo":"Evento de RAP","descricao":"EVENTO RAP",
   "dataInicio":"2026-11-12T17:29:36.487","dataFim":"2026-11-13T17:29:36.487",
-  "vagas":1,
+  "vagas":1,"vagasDisponiveis":1,
   "endereco":{"cep":"85601-336","logradouro":"Rua Silvia Abdala",
     "bairro":"Agua Branca","cidade":"Francisco Beltrao","uf":"PR",
     "numero":"123"},
   "fotoUrl":null}]
 ''';
 
-/// Apenas o primeiro evento (resposta de `GET /evento/buscar/1`): decodifica a
+/// Apenas o primeiro evento (resposta de `GET /eventos/1`): decodifica a
 /// lista, pega o item 0 e volta a transformar em texto JSON.
 String get _radarTech => jsonEncode((jsonDecode(_eventosJson) as List)[0]);
+
+/// O mesmo evento com [ocupadas] vagas preenchidas: a API manda `vagas` e
+/// `vagasDisponiveis` (capacidade menos as inscricoes ativas).
+///
+/// Os parametros entre `{ }` sao nomeados (`vagas: 200`); `vagas = 10` e o valor
+/// usado quando o teste nao informa. O `...` (spread) copia todos os campos do
+/// evento original, e as chaves seguintes SOBRESCREVEM `vagas` e
+/// `vagasDisponiveis`. `clamp(0, vagas)` impede numero negativo.
+String _radarTechCom(int ocupadas, {int vagas = 10}) => jsonEncode({
+  ...(jsonDecode(_eventosJson) as List)[0] as Map<String, dynamic>,
+  'vagas': vagas,
+  'vagasDisponiveis': (vagas - ocupadas).clamp(0, vagas),
+});
+
+/// Resposta paginada de `GET /eventos` ({content, page}) a partir de uma lista
+/// JSON de eventos. E o formato do Spring Data, igual ao de `/inscricoes` e
+/// `/participantes`: os itens ficam em `content` e os numeros de paginacao em
+/// `page`. [numero] e [totalPaginas] permitem simular varias paginas.
+String _paginaEventos(String lista, {int numero = 0, int totalPaginas = 1}) {
+  final itens = jsonDecode(lista) as List;
+  return jsonEncode({
+    'content': itens,
+    'page': {
+      'size': 100,
+      'number': numero,
+      'totalElements': itens.length,
+      'totalPages': totalPaginas,
+    },
+  });
+}
+
+/// Resposta 200 de `GET /eventos` com todos os eventos de [lista] numa pagina.
+/// Os testes usam `'/eventos': _okLista(...)` no lugar da antiga rota de lista.
+http.Response _okLista(String lista) => _ok(_paginaEventos(lista));
+
+/// Botao preenchido que contem [rotulo], para o teste conferir se esta
+/// habilitado (`onPressed != null`) ou desabilitado (`onPressed == null`).
+/// Usa predicado porque
+/// `FilledButton.icon` cria uma subclasse, que `find.byType` nao encontraria.
+FilledButton _botao(WidgetTester tester, String rotulo) =>
+    tester.widget<FilledButton>(
+      find.ancestor(
+        of: find.text(rotulo),
+        matching: find.byWidgetPredicate((w) => w is FilledButton),
+      ),
+    );
+
+/// Resposta 409 da API com a [mensagem] informada (mesmo envelope de erro que o
+/// back-end usa: status, error, message, path e fieldErrors).
+http.Response _conflito(String mensagem) => _erro(
+  '{"status":409,"error":"Conflict","message":"$mensagem",'
+  '"path":"/inscricoes","fieldErrors":[]}',
+  409,
+);
 
 /// Resposta de `POST /inscricoes`: a inscricao criada, sempre PENDENTE.
 const _minhaInscricao =
@@ -224,7 +278,7 @@ void main() {
               '{"token":"$token","tipo":"Bearer","expiraEmSegundos":7200,'
               '"usuarioId":7,"papel":"PARTICIPANTE"}',
             ),
-            '/evento/listar/': _ok(_eventosJson),
+            '/eventos': _okLista(_eventosJson),
           },
         ),
       );
@@ -249,9 +303,7 @@ void main() {
       expect(login.headers.containsKey('Authorization'), isFalse);
 
       // O pedido seguinte ja leva o token no header.
-      final eventos = _pedidos.firstWhere(
-        (p) => p.url.path == '/evento/listar/',
-      );
+      final eventos = _pedidos.firstWhere((p) => p.url.path == '/eventos');
       expect(eventos.headers['Authorization'], 'Bearer $token');
 
       expect(find.text('Descubra eventos'), findsOneWidget);
@@ -265,7 +317,7 @@ void main() {
       await tester.pumpWidget(
         _appCom(
           // 401 com corpo vazio, como o filtro de seguranca do Spring.
-          (_) => {'/evento/listar/': http.Response('', 401)},
+          (_) => {'/eventos': http.Response('', 401)},
           logado: Papel.participante,
         ),
       );
@@ -280,7 +332,7 @@ void main() {
       _tela(tester);
       await tester.pumpWidget(
         _appCom(
-          (_) => {'/evento/listar/': _ok(_eventosJson)},
+          (_) => {'/eventos': _okLista(_eventosJson)},
           logado: Papel.organizador,
         ),
       );
@@ -334,7 +386,7 @@ void main() {
               '"tipo":"Bearer","expiraEmSegundos":7200,"usuarioId":7,'
               '"papel":"PARTICIPANTE"}',
             ),
-            '/evento/listar/': _ok(_eventosJson),
+            '/eventos': _okLista(_eventosJson),
           },
         ),
       );
@@ -372,7 +424,7 @@ void main() {
       _tela(tester);
       await tester.pumpWidget(
         _appCom(
-          (_) => {'/evento/listar/': _ok(_eventosJson)},
+          (_) => {'/eventos': _okLista(_eventosJson)},
           logado: Papel.participante,
         ),
       );
@@ -383,8 +435,9 @@ void main() {
       expect(find.text('2 eventos'), findsOneWidget);
       // `findsNWidgets(2)`: exatamente 2 ocorrencias (um por cartao).
       expect(find.text('Francisco Beltrao - PR'), findsNWidgets(2));
-      expect(find.text('200 vagas'), findsOneWidget);
-      expect(find.text('1 vaga'), findsOneWidget);
+      // Cada cartao mostra a ocupacao que a API calculou.
+      expect(find.text('0/200 vagas preenchidas'), findsOneWidget);
+      expect(find.text('0/1 vaga preenchida'), findsOneWidget);
 
       // "Evento de RAP" terminou em 13/11/2026; hoje, para o back-end, e o
       // relogio de Sao Paulo.
@@ -395,7 +448,7 @@ void main() {
       _tela(tester);
       await tester.pumpWidget(
         _appCom(
-          (_) => {'/evento/listar/': _ok(_eventosJson)},
+          (_) => {'/eventos': _okLista(_eventosJson)},
           logado: Papel.participante,
         ),
       );
@@ -414,7 +467,7 @@ void main() {
       _tela(tester);
       await tester.pumpWidget(
         _appCom(
-          (_) => {'/evento/listar/': _ok(_eventosJson)},
+          (_) => {'/eventos': _okLista(_eventosJson)},
           logado: Papel.organizador,
         ),
       );
@@ -432,7 +485,7 @@ void main() {
       await tester.pumpWidget(
         _appCom(
           // `[]` = lista JSON vazia.
-          (_) => {'/evento/listar/': _ok('[]')},
+          (_) => {'/eventos': _okLista('[]')},
           logado: Papel.organizador,
         ),
       );
@@ -448,9 +501,9 @@ void main() {
       await tester.pumpWidget(
         _appCom(
           (_) => {
-            '/evento/listar/': _erro(
+            '/eventos': _erro(
               '{"status":500,"error":"Internal Server Error",'
-              '"message":"Erro interno do servidor","path":"/evento/listar/",'
+              '"message":"Erro interno do servidor","path":"/eventos",'
               '"fieldErrors":[]}',
               500,
             ),
@@ -484,8 +537,8 @@ void main() {
             inscrito = true;
           }
           return {
-            '/evento/listar/': _ok(_eventosJson),
-            '/evento/buscar/1': _ok(_radarTech),
+            '/eventos': _okLista(_eventosJson),
+            '/eventos/1': _ok(_radarTech),
             // Para POST devolve a inscricao criada; para GET, vazio antes de
             // se inscrever e com a inscricao depois.
             '/inscricoes': request.method == 'POST'
@@ -522,18 +575,48 @@ void main() {
       tester,
     ) async {
       _tela(tester);
+      // Ao abrir ainda ha 1 vaga; outra pessoa a toma antes do POST chegar.
+      var lotou = false;
+      await tester.pumpWidget(
+        _appCom((request) {
+          if (request.method == 'POST') lotou = true;
+          return {
+            '/eventos': _okLista('[${_radarTechCom(9)}]'),
+            '/eventos/1': _ok(_radarTechCom(lotou ? 10 : 9)),
+            '/inscricoes': request.method == 'POST'
+                // 409: a regra de negocio (vagas) e do servidor; o app so exibe.
+                ? _conflito('Evento sem vagas disponíveis')
+                : _ok(_paginaVazia),
+          };
+        }, logado: Papel.participante),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Radar Tech'));
+      await tester.pumpAndSettle();
+      expect(find.text('1 vaga disponível'), findsOneWidget);
+
+      await tester.tap(find.text('Quero me inscrever'));
+      await tester.pumpAndSettle();
+
+      // A mensagem aparece (no snackbar) exatamente como veio da API.
+      expect(find.text('Evento sem vagas disponíveis'), findsOneWidget);
+      // E a tela recarregou o evento: agora mostra a situacao real.
+      expect(find.text('10/10 vagas preenchidas'), findsOneWidget);
+      expect(_botao(tester, 'Vagas esgotadas').onPressed, isNull);
+    });
+
+    testWidgets('inscricao duplicada recusada nao trava o botao por vagas', (
+      tester,
+    ) async {
+      _tela(tester);
       await tester.pumpWidget(
         _appCom(
           (request) => {
-            '/evento/listar/': _ok(_eventosJson),
-            '/evento/buscar/1': _ok(_radarTech),
+            '/eventos': _okLista(_eventosJson),
+            '/eventos/1': _ok(_radarTech),
             '/inscricoes': request.method == 'POST'
-                // 409: a regra de negocio (vagas) e do servidor; o app so exibe.
-                ? _erro(
-                    '{"status":409,"error":"Conflict",'
-                    '"message":"Evento sem vagas disponíveis",'
-                    '"path":"/inscricoes","fieldErrors":[]}',
-                    409,
+                ? _conflito(
+                    'Participante já possui inscrição ativa neste evento',
                   )
                 : _ok(_paginaVazia),
           },
@@ -547,23 +630,78 @@ void main() {
       await tester.tap(find.text('Quero me inscrever'));
       await tester.pumpAndSettle();
 
-      // A mensagem aparece (no snackbar) exatamente como veio da API.
-      expect(find.text('Evento sem vagas disponíveis'), findsOneWidget);
+      // Duplicada nao e falta de vaga: o botao continua disponivel.
+      expect(find.text('Vagas esgotadas'), findsNothing);
+      expect(_botao(tester, 'Quero me inscrever').onPressed, isNotNull);
+    });
+
+    testWidgets('participante ve vagas preenchidas e disponiveis', (
+      tester,
+    ) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/eventos': _okLista('[${_radarTechCom(7)}]'),
+            '/eventos/1': _ok(_radarTechCom(7)),
+            '/inscricoes': _ok(_paginaVazia),
+          },
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // O cartao da lista ja mostra a ocupacao.
+      expect(find.text('7/10 vagas preenchidas'), findsOneWidget);
+
+      await tester.tap(find.text('Radar Tech'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('7/10 vagas preenchidas'), findsOneWidget);
+      expect(find.text('3 vagas disponíveis'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      expect(_botao(tester, 'Quero me inscrever').onPressed, isNotNull);
+    });
+
+    testWidgets('evento lotado bloqueia o botao e nao envia inscricao', (
+      tester,
+    ) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/eventos': _okLista('[${_radarTechCom(10)}]'),
+            '/eventos/1': _ok(_radarTechCom(10)),
+            '/inscricoes': _ok(_paginaVazia),
+          },
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Lotado (10/10)'), findsOneWidget);
+
+      await tester.tap(find.text('Radar Tech'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('10/10 vagas preenchidas'), findsOneWidget);
+      expect(find.text('Nenhuma vaga disponível'), findsOneWidget);
+      expect(find.text('Quero me inscrever'), findsNothing);
+      expect(_botao(tester, 'Vagas esgotadas').onPressed, isNull);
+
+      // O toque no botao desabilitado nao pode gerar pedido.
+      await tester.tap(find.text('Vagas esgotadas'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(_pedidos.where((p) => p.method == 'POST'), isEmpty);
     });
 
     testWidgets('organizador ve ocupacao e acoes no detalhe', (tester) async {
       _tela(tester);
-      // totalElements = 3 em CADA chamada de contagem (uma por status ativo).
-      const contagem =
-          '{"content":[],"page":{"size":1,"number":0,"totalElements":3,'
-          '"totalPages":3}}';
+      // A ocupacao vem no proprio evento (`vagasDisponiveis`): 6 de 200.
+      final evento = _radarTechCom(6, vagas: 200);
       await tester.pumpWidget(
         _appCom(
-          (_) => {
-            '/evento/listar/': _ok(_eventosJson),
-            '/evento/buscar/1': _ok(_radarTech),
-            '/inscricoes': _ok(contagem),
-          },
+          (_) => {'/eventos': _okLista('[$evento]'), '/eventos/1': _ok(evento)},
           logado: Papel.organizador,
         ),
       );
@@ -571,13 +709,71 @@ void main() {
       await tester.tap(find.text('Radar Tech'));
       await tester.pumpAndSettle();
 
-      // 3 pendentes + 3 confirmadas: a contagem soma os status que ocupam vaga.
       expect(find.text('6'), findsOneWidget);
       expect(find.text('de 200 vagas'), findsOneWidget);
       expect(find.text('Ver inscrições'), findsOneWidget);
       expect(find.text('Editar'), findsOneWidget);
       expect(find.text('Excluir'), findsOneWidget);
       expect(find.text('Quero me inscrever'), findsNothing);
+      // Sem as antigas consultas de contagem (`size=1`) em /inscricoes.
+      expect(
+        _pedidos.where(
+          (p) =>
+              p.url.path == '/inscricoes' &&
+              p.url.queryParameters['size'] == '1',
+        ),
+        isEmpty,
+      );
+    });
+
+    testWidgets('participante cancela a propria inscricao no detalhe', (
+      tester,
+    ) async {
+      _tela(tester);
+      var cancelada = false;
+      const minha =
+          '{"content":[{"id":10,"participanteId":7,"participanteNome":"Maria",'
+          '"eventoId":1,"eventoTitulo":"Radar Tech","status":"CONFIRMADA",'
+          '"dataInscricao":"2026-11-15T10:00:00"}],'
+          '"page":{"size":50,"number":0,"totalElements":1,"totalPages":1}}';
+      await tester.pumpWidget(
+        _appCom((request) {
+          if (request.method == 'PATCH') cancelada = true;
+          return {
+            '/eventos': _okLista('[${_radarTechCom(1)}]'),
+            '/eventos/1': _ok(_radarTechCom(cancelada ? 0 : 1)),
+            '/inscricoes/10/cancelar': _ok(
+              '{"id":10,"participanteId":7,"participanteNome":"Maria",'
+              '"eventoId":1,"eventoTitulo":"Radar Tech","status":"CANCELADA",'
+              '"dataInscricao":"2026-11-15T10:00:00"}',
+            ),
+            // Depois de cancelar, a API deixa de ver inscricao ativa.
+            '/inscricoes': _ok(cancelada ? _paginaVazia : minha),
+          };
+        }, logado: Papel.participante),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Radar Tech'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Você está inscrito'), findsOneWidget);
+      await tester.tap(find.text('Cancelar inscrição'));
+      await tester.pumpAndSettle();
+
+      // Confirmacao antes de cancelar: nada foi enviado ainda.
+      expect(find.text('Cancelar sua inscrição?'), findsOneWidget);
+      expect(_pedidos.where((p) => p.method == 'PATCH'), isEmpty);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Cancelar inscrição'));
+      await tester.pumpAndSettle();
+
+      // PATCH sem corpo na rota propria do participante.
+      final patch = _pedidos.firstWhere((p) => p.method == 'PATCH');
+      expect(patch.url.path, '/inscricoes/10/cancelar');
+      expect(patch.body, isEmpty);
+      // A vaga voltou e a pessoa pode se inscrever de novo.
+      expect(find.text('Quero me inscrever'), findsOneWidget);
+      expect(find.text('Você está inscrito'), findsNothing);
     });
   });
 
@@ -599,7 +795,7 @@ void main() {
       await tester.pumpWidget(
         _appCom(
           (_) => {
-            '/evento/listar/': _ok(_eventosJson),
+            '/eventos': _okLista(_eventosJson),
             '/inscricoes': _ok(inscricoes),
           },
           logado: Papel.organizador,
@@ -625,14 +821,14 @@ void main() {
       expect(find.text('Confirmar'), findsNothing);
     });
 
-    testWidgets('participante ve as proprias inscricoes, sem mudar status', (
+    testWidgets('participante ve as proprias inscricoes e so pode cancelar', (
       tester,
     ) async {
       _tela(tester);
       await tester.pumpWidget(
         _appCom(
           (_) => {
-            '/evento/listar/': _ok(_eventosJson),
+            '/eventos': _okLista(_eventosJson),
             '/inscricoes': _ok(inscricoes),
           },
           logado: Papel.participante,
@@ -646,9 +842,61 @@ void main() {
       // `findsWidgets`: um ou mais.
       expect(find.text('Radar Tech'), findsWidgets);
       expect(find.text('Confirmada'), findsWidgets);
-      expect(find.byIcon(Icons.more_vert), findsNothing);
+      // So a inscricao ativa tem menu; a CANCELADA e terminal.
+      expect(find.byIcon(Icons.more_vert), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      // Nunca "Confirmar": isso e do organizador.
+      expect(find.text('Cancelar'), findsOneWidget);
+      expect(find.text('Confirmar'), findsNothing);
       // Nem o filtro por participante, que a API ignora para ele.
       expect(find.byTooltip('Filtrar por participante'), findsNothing);
+    });
+
+    testWidgets('participante cancela a inscricao pela lista', (tester) async {
+      _tela(tester);
+      var cancelada = false;
+      String lista() => cancelada
+          ? inscricoes.replaceFirst('"CONFIRMADA"', '"CANCELADA"')
+          : inscricoes;
+      await tester.pumpWidget(
+        _appCom((request) {
+          if (request.method == 'PATCH') cancelada = true;
+          return {
+            '/eventos': _okLista(_eventosJson),
+            '/inscricoes/10/cancelar': _ok(
+              '{"id":10,"participanteId":1,"participanteNome":"Maria Silva",'
+              '"eventoId":1,"eventoTitulo":"Radar Tech","status":"CANCELADA",'
+              '"dataInscricao":"2026-11-13T10:00:00"}',
+            ),
+            '/inscricoes': _ok(lista()),
+          };
+        }, logado: Papel.participante),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Minhas inscrições'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancelar'));
+      await tester.pumpAndSettle();
+      // Confirmacao: o texto fala da propria inscricao.
+      expect(
+        find.textContaining('Sua inscrição em "Radar Tech" será cancelada'),
+        findsOneWidget,
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Cancelar inscrição'));
+      await tester.pumpAndSettle();
+
+      expect(
+        _pedidos.where(
+          (p) => p.method == 'PATCH' && p.url.path == '/inscricoes/10/cancelar',
+        ),
+        hasLength(1),
+      );
+      // Cancelada: sumiu o menu (estado terminal).
+      expect(find.byIcon(Icons.more_vert), findsNothing);
     });
   });
 
@@ -665,7 +913,7 @@ void main() {
       await tester.pumpWidget(
         _appCom(
           (_) => {
-            '/evento/listar/': _ok(_eventosJson),
+            '/eventos': _okLista(_eventosJson),
             '/participantes': _ok(participantes),
           },
           logado: Papel.organizador,
@@ -687,7 +935,7 @@ void main() {
       await tester.pumpWidget(
         _appCom(
           (_) => {
-            '/evento/listar/': _ok(_eventosJson),
+            '/eventos': _okLista(_eventosJson),
             '/participantes/7': _ok(
               '{"id":7,"nome":"Maria Silva","email":"maria@exemplo.com",'
               '"cpf":"52998224725","telefone":null}',
@@ -715,7 +963,7 @@ void main() {
     _tela(tester, largura: 420, altura: 900);
     await tester.pumpWidget(
       _appCom(
-        (_) => {'/evento/listar/': _ok(_eventosJson)},
+        (_) => {'/eventos': _okLista(_eventosJson)},
         logado: Papel.participante,
       ),
     );
@@ -726,6 +974,230 @@ void main() {
     expect(find.byTooltip('Conta'), findsOneWidget);
   });
 
+  // Cobre o que veio da API nova: nome por `GET /me`, troca de senha por
+  // `PATCH /me/senha` e o bloqueio 429. Os testes montam o app logado, sem passar
+  // pela tela de entrada.
+  group('conta e senha', () {
+    // Resposta de `GET /participantes/7`: a tela "Meu perfil" a carrega.
+    const perfil =
+        '{"id":7,"nome":"Maria Silva","email":"maria@exemplo.com",'
+        '"cpf":"52998224725","telefone":null}';
+
+    /// Achador de um botao (inclusive os `.icon`, subclasses) pelo rotulo.
+    ///
+    /// CONCEITO - generics (`<T>`): `botao<FilledButton>('x')` e
+    /// `botao<OutlinedButton>('x')` reaproveitam o mesmo codigo para tipos de
+    /// botao diferentes. `w is T` testa se o widget e (ou herda de) `T`.
+    Finder botao<T extends Widget>(String rotulo) => find.ancestor(
+      of: find.text(rotulo),
+      matching: find.byWidgetPredicate((w) => w is T),
+    );
+
+    /// Abre "Meu perfil" e dali a tela de troca de senha. [senha] e a funcao que
+    /// diz o que a API responde ao `PATCH /me/senha` (204, 400, 429...).
+    Future<void> abrirTrocaDeSenha(
+      WidgetTester tester,
+      http.Response Function(http.Request) senha,
+    ) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (request) => {
+            '/eventos': _okLista(_eventosJson),
+            '/participantes/7': _ok(perfil),
+            '/me/senha': senha(request),
+          },
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Meu perfil'));
+      await tester.pumpAndSettle();
+      await tester.tap(botao<OutlinedButton>('Alterar senha'));
+      await tester.pumpAndSettle();
+    }
+
+    /// Preenche os tres campos (atual, nova e confirmacao) e toca em enviar.
+    /// Se [confirmacao] nao for informada, repete a [nova] (confirmacao certa).
+    Future<void> enviar(
+      WidgetTester tester, {
+      String atual = 'senhaAtual1',
+      String nova = 'novaSenha22',
+      String? confirmacao,
+    }) async {
+      // `at(n)` pega o n-esimo campo de texto da tela, de cima para baixo.
+      final campos = find.byType(TextFormField);
+      await tester.enterText(campos.at(0), atual);
+      await tester.enterText(campos.at(1), nova);
+      await tester.enterText(campos.at(2), confirmacao ?? nova);
+      await tester.tap(botao<FilledButton>('Alterar senha'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('mostra o nome vindo de GET /me', (tester) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/eventos': _okLista(_eventosJson),
+            '/me': _ok(
+              '{"id":7,"nome":"Maria Silva","email":"maria@exemplo.com",'
+              '"papel":"PARTICIPANTE","tokenExpiraEm":"2100-01-01T00:00:00Z"}',
+            ),
+          },
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Maria Silva'), findsWidgets);
+      final me = _pedidos.firstWhere((p) => p.url.path == '/me');
+      expect(me.method, 'GET');
+      // Vai com o token da sessao.
+      expect(me.headers['Authorization'], startsWith('Bearer '));
+    });
+
+    // Garante que o `/me` e so um "bonus": se falhar, o app segue funcionando
+    // com o que o token ja tem (o e-mail).
+    testWidgets('falha em GET /me nao derruba a sessao', (tester) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/eventos': _okLista(_eventosJson),
+            '/me': _erro('{"status":500,"message":"Erro interno"}', 500),
+          },
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Segue logado, identificado pelo e-mail.
+      expect(find.text('maria@exemplo.com'), findsWidgets);
+      expect(find.text('Bem-vindo de volta'), findsNothing);
+    });
+
+    // 401 = token recusado pela API (vencido ou conta excluida). O ApiClient
+    // avisa a Sessao, que apaga o login e a raiz do app troca para o login.
+    testWidgets('401 em GET /me volta para a tela de entrada', (tester) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {
+            '/eventos': _okLista(_eventosJson),
+            '/me': http.Response('', 401),
+          },
+          logado: Papel.participante,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bem-vindo de volta'), findsOneWidget);
+    });
+
+    testWidgets('troca a senha e avisa', (tester) async {
+      await abrirTrocaDeSenha(tester, (_) => http.Response('', 204));
+      await enviar(tester);
+
+      final patch = _pedidos.firstWhere((p) => p.url.path == '/me/senha');
+      expect(patch.method, 'PATCH');
+      expect(jsonDecode(patch.body), {
+        'senhaAtual': 'senhaAtual1',
+        'novaSenha': 'novaSenha22',
+      });
+      expect(find.text('Senha alterada.'), findsOneWidget);
+      // Voltou ao perfil e continua logada.
+      expect(find.text('Confirmar nova senha *'), findsNothing);
+      expect(find.text('Meu perfil'), findsWidgets);
+    });
+
+    // Cada `enviar` abaixo tenta uma combinacao invalida; nenhuma pode gerar
+    // pedido. O `expect` final confere isso olhando o historico de `_pedidos`.
+    testWidgets('valida a nova senha antes de chamar a API', (tester) async {
+      await abrirTrocaDeSenha(tester, (_) => http.Response('', 204));
+
+      await enviar(tester, atual: 'mesmaSenha1', nova: 'mesmaSenha1');
+      expect(
+        find.text('A nova senha deve ser diferente da atual'),
+        findsOneWidget,
+      );
+
+      await enviar(tester, nova: 'curta');
+      expect(
+        find.text('A senha deve ter entre 8 e 72 caracteres'),
+        findsOneWidget,
+      );
+
+      await enviar(tester, nova: 'novaSenha22', confirmacao: 'outraSenha33');
+      expect(find.text('As senhas não conferem'), findsOneWidget);
+
+      // Nenhuma dessas tentativas chegou a API.
+      expect(_pedidos.where((p) => p.url.path == '/me/senha'), isEmpty);
+    });
+
+    testWidgets('mostra a recusa da API para a senha atual errada', (
+      tester,
+    ) async {
+      await abrirTrocaDeSenha(
+        tester,
+        (_) => _erro(
+          '{"status":400,"error":"Bad Request",'
+          '"message":"A senha atual está incorreta","path":"/me/senha",'
+          '"fieldErrors":[]}',
+          400,
+        ),
+      );
+      await enviar(tester);
+
+      expect(find.text('A senha atual está incorreta'), findsOneWidget);
+      // Continua na tela, com o botao liberado para tentar de novo.
+      expect(find.text('Confirmar nova senha *'), findsOneWidget);
+    });
+
+    testWidgets('mostra o bloqueio por tentativas demais (429)', (
+      tester,
+    ) async {
+      await abrirTrocaDeSenha(
+        tester,
+        (_) => _erro(
+          '{"status":429,"error":"Too Many Requests",'
+          '"message":"Muitas tentativas de login. Tente novamente em alguns '
+          'minutos.","path":"/me/senha","fieldErrors":[]}',
+          429,
+        ),
+      );
+      await enviar(tester);
+
+      expect(find.text('Muitas tentativas'), findsOneWidget);
+      expect(
+        find.text(
+          'Muitas tentativas de login. Tente novamente em alguns minutos.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('organizador tambem altera a senha, pela barra lateral', (
+      tester,
+    ) async {
+      _tela(tester);
+      await tester.pumpWidget(
+        _appCom(
+          (_) => {'/eventos': _okLista(_eventosJson)},
+          logado: Papel.organizador,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Na barra larga o acesso e um botao de texto no cartao do usuario (no
+      // tablet e um icone com tooltip; no celular, um item do menu de conta).
+      await tester.tap(find.text('Alterar senha'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Confirmar nova senha *'), findsOneWidget);
+    });
+  });
+
   group('layout responsivo', () {
     // Eventos de conteudo bem diferente: titulo curto sem descricao, titulo
     // longo com descricao longa, e um de titulo medio. Os cartoes precisam sair
@@ -733,21 +1205,21 @@ void main() {
     const eventosVariados = '''
     [{"id":1,"titulo":"Feira","descricao":"",
       "dataInicio":"2026-12-04T17:00:00","dataFim":"2026-12-08T17:00:00",
-      "vagas":1,"endereco":{"cep":"85601-000","logradouro":"Rua A","bairro":"Centro",
+      "vagas":1,"vagasDisponiveis":1,"endereco":{"cep":"85601-000","logradouro":"Rua A","bairro":"Centro",
       "cidade":"Francisco Beltrao","uf":"PR","numero":null},"fotoUrl":null},
      {"id":2,"titulo":"Festival Internacional de Musica e Cultura Popular da Regiao Sudoeste do Parana",
       "descricao":"Tres dias de shows, oficinas, feira gastronomica, exposicoes de arte e apresentacoes para toda a familia, com entrada solidaria e atracoes nacionais.",
       "dataInicio":"2026-12-10T09:00:00","dataFim":"2026-12-12T23:00:00",
-      "vagas":2000,"endereco":{"cep":"85601-000","logradouro":"Rua B","bairro":"Centro",
+      "vagas":2000,"vagasDisponiveis":2000,"endereco":{"cep":"85601-000","logradouro":"Rua B","bairro":"Centro",
       "cidade":"Francisco Beltrao","uf":"PR","numero":"10"},"fotoUrl":null},
      {"id":3,"titulo":"Workshop de Flutter",
       "descricao":"Curso pratico.",
       "dataInicio":"2026-12-15T14:00:00","dataFim":"2026-12-15T18:00:00",
-      "vagas":30,"endereco":{"cep":"85601-000","logradouro":"Rua C","bairro":"Centro",
+      "vagas":30,"vagasDisponiveis":30,"endereco":{"cep":"85601-000","logradouro":"Rua C","bairro":"Centro",
       "cidade":"Pato Branco","uf":"PR","numero":"5"},"fotoUrl":null},
      {"id":4,"titulo":"Corrida","descricao":"Percurso de 5 km pela orla, com kit e medalha para quem completar a prova.",
       "dataInicio":"2026-12-20T07:00:00","dataFim":"2026-12-20T10:00:00",
-      "vagas":500,"endereco":{"cep":"85601-000","logradouro":"Rua D","bairro":"Centro",
+      "vagas":500,"vagasDisponiveis":500,"endereco":{"cep":"85601-000","logradouro":"Rua D","bairro":"Centro",
       "cidade":"Francisco Beltrao","uf":"PR","numero":null},"fotoUrl":null}]
     ''';
 
@@ -757,7 +1229,7 @@ void main() {
       _tela(tester);
       await tester.pumpWidget(
         _appCom(
-          (_) => {'/evento/listar/': _ok(eventosVariados)},
+          (_) => {'/eventos': _okLista(eventosVariados)},
           logado: Papel.participante,
         ),
       );
@@ -783,7 +1255,7 @@ void main() {
       addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
       await tester.pumpWidget(
         _appCom(
-          (_) => {'/evento/listar/': _ok(eventosVariados)},
+          (_) => {'/eventos': _okLista(eventosVariados)},
           logado: Papel.participante,
         ),
       );
@@ -817,6 +1289,87 @@ void main() {
       ('desktop', 1920, 1080),
     ];
 
+    /// Abre a troca de senha pelo acesso que existe na largura atual: menu de
+    /// conta no celular; botao/icone da barra lateral nas demais.
+    /// `evaluate().isNotEmpty` pergunta "existe algum widget assim na tela agora?".
+    Future<void> abrirSenhaPorAcesso(WidgetTester tester) async {
+      if (find.byTooltip('Conta').evaluate().isNotEmpty) {
+        await tester.tap(find.byTooltip('Conta'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Alterar senha'));
+      } else if (find.byTooltip('Alterar senha').evaluate().isNotEmpty) {
+        await tester.tap(find.byTooltip('Alterar senha'));
+      } else {
+        await tester.tap(find.text('Alterar senha'));
+      }
+      await tester.pumpAndSettle();
+    }
+
+    // Vagas e botao bloqueado precisam caber do celular ao desktop.
+    for (final (nome, largura, altura) in faixas) {
+      testWidgets('$nome (${largura.toInt()} px): evento lotado sem overflow', (
+        tester,
+      ) async {
+        _tela(tester, largura: largura, altura: altura);
+        await tester.pumpWidget(
+          _appCom(
+            (_) => {
+              '/eventos': _okLista('[${_radarTechCom(2000, vagas: 2000)}]'),
+              '/eventos/1': _ok(_radarTechCom(2000, vagas: 2000)),
+              '/inscricoes': _ok(_paginaVazia),
+            },
+            logado: Papel.participante,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Lotado (2000/2000)'), findsOneWidget);
+
+        await tester.ensureVisible(find.text('Radar Tech'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Radar Tech'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('2000/2000 vagas preenchidas'), findsOneWidget);
+        expect(find.text('Vagas esgotadas'), findsOneWidget);
+      });
+    }
+
+    // Detalhe com "Cancelar inscricao" e a tela de senha, do celular ao desktop.
+    for (final (nome, largura, altura) in faixas) {
+      testWidgets('$nome (${largura.toInt()} px): inscrito e troca de senha '
+          'sem overflow', (tester) async {
+        _tela(tester, largura: largura, altura: altura);
+        const minha =
+            '{"content":[{"id":10,"participanteId":7,'
+            '"participanteNome":"Maria","eventoId":1,'
+            '"eventoTitulo":"Radar Tech","status":"PENDENTE",'
+            '"dataInscricao":"2026-11-15T10:00:00"}],'
+            '"page":{"size":50,"number":0,"totalElements":1,"totalPages":1}}';
+        await tester.pumpWidget(
+          _appCom(
+            (_) => {
+              '/eventos': _okLista('[${_radarTechCom(1)}]'),
+              '/eventos/1': _ok(_radarTechCom(1)),
+              '/inscricoes': _ok(minha),
+            },
+            logado: Papel.participante,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Radar Tech'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Radar Tech'));
+        await tester.pumpAndSettle();
+        expect(find.text('Cancelar inscrição'), findsOneWidget);
+
+        // Volta e abre a troca de senha pelo acesso da propria largura.
+        await tester.tap(find.byTooltip('Voltar'));
+        await tester.pumpAndSettle();
+        await abrirSenhaPorAcesso(tester);
+        expect(find.text('Confirmar nova senha *'), findsOneWidget);
+      });
+    }
+
     // Gera testes automaticamente: 4 faixas x 2 papeis (+ 4 de login).
     // Se QUALQUER tela estourar (overflow) em alguma largura, o teste falha.
     for (final (nome, largura, altura) in faixas) {
@@ -843,8 +1396,8 @@ void main() {
           await tester.pumpWidget(
             _appCom(
               (_) => {
-                '/evento/listar/': _ok(eventosVariados),
-                '/evento/buscar/2': _ok(
+                '/eventos': _okLista(eventosVariados),
+                '/eventos/2': _ok(
                   jsonEncode((jsonDecode(eventosVariados) as List)[1]),
                 ),
                 '/inscricoes': _ok(inscricoes),

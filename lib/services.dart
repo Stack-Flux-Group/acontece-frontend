@@ -14,16 +14,16 @@
 import 'package:material_ui/material_ui.dart';
 
 // Cliente HTTP do app (unico ponto de rede).
-import 'core/api_client.dart';
+import 'infraestrutura/api_client.dart';
 // Sessao: guarda quem esta logado e o token.
-import 'core/sessao.dart';
+import 'infraestrutura/sessao.dart';
 // Armazenamento persistente do token (localStorage no navegador).
-import 'core/token_storage.dart';
+import 'infraestrutura/token_storage.dart';
 // Repositorios: um por recurso da API (login, eventos, participantes...).
-import 'repositories/auth_repository.dart';
-import 'repositories/evento_repository.dart';
-import 'repositories/inscricao_repository.dart';
-import 'repositories/participante_repository.dart';
+import 'acesso_a_api/auth_repository.dart';
+import 'acesso_a_api/evento_repository.dart';
+import 'acesso_a_api/inscricao_repository.dart';
+import 'acesso_a_api/participante_repository.dart';
 
 /// Disponibiliza a sessao e os repositorios para a arvore de widgets.
 ///
@@ -55,7 +55,7 @@ class Services extends InheritedWidget {
     // Sessao: usa o repositorio para logar e o storage para lembrar o token.
     // `TokenStorage.padrao()` escolhe localStorage (web) ou memoria (testes).
     sessao = Sessao(auth: auth, storage: storage ?? TokenStorage.padrao());
-    // Repositorio de eventos (todas as rotas /evento/...).
+    // Repositorio de eventos (rotas /eventos).
     eventos = EventoRepository(this.client);
     // Repositorio de participantes (rotas /participantes).
     participantes = ParticipanteRepository(this.client);
@@ -84,7 +84,7 @@ class Services extends InheritedWidget {
   /// Acesso a `/auth` (login).
   late final AuthRepository auth;
 
-  /// Acesso a `/evento`.
+  /// Acesso a `/eventos`.
   late final EventoRepository eventos;
 
   /// Acesso a `/participantes`.

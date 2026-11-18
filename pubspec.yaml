@@ -17,7 +17,7 @@ dependencies:
 
   cupertino_icons: ^1.0.8
 
-  # Cliente HTTP oficial. Unico ponto de rede do app (lib/core/api_client.dart).
+  # Cliente HTTP oficial. Unico ponto de rede do app (lib/infraestrutura/api_client.dart).
   http: ^1.6.0
 
   # Formatacao de datas/numeros em pt-BR.

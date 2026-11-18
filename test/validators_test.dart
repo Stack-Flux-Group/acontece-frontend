@@ -1,5 +1,5 @@
 // =============================================================================
-// validators_test.dart - TESTES UNITARIOS DAS VALIDACOES (core/validators.dart)
+// validators_test.dart - TESTES UNITARIOS DAS VALIDACOES (infraestrutura/validators.dart)
 // =============================================================================
 //
 // CONCEITO - teste unitario: codigo que chama uma funcao com entradas
@@ -16,7 +16,7 @@
 
 // Import com `package:acontece_frontend/...` = codigo do proprio app (o nome do
 // pacote vem do pubspec.yaml).
-import 'package:acontece_frontend/core/validators.dart';
+import 'package:acontece_frontend/infraestrutura/validators.dart';
 // Biblioteca de testes do Flutter: group, test, expect, matchers.
 import 'package:flutter_test/flutter_test.dart';
 

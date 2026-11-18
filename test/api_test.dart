@@ -22,21 +22,26 @@
 // jsonEncode/jsonDecode/base64Url/utf8: montar um JWT de teste.
 import 'dart:convert';
 
-import 'package:acontece_frontend/core/api_client.dart';
-import 'package:acontece_frontend/core/api_dates.dart';
-import 'package:acontece_frontend/core/api_exception.dart';
-import 'package:acontece_frontend/models/auth.dart';
-import 'package:acontece_frontend/models/evento.dart';
-import 'package:acontece_frontend/models/inscricao.dart';
-import 'package:acontece_frontend/models/paged_model.dart';
-import 'package:acontece_frontend/models/participante.dart';
-import 'package:acontece_frontend/models/status_inscricao.dart';
+import 'package:acontece_frontend/acesso_a_api/evento_repository.dart';
+import 'package:acontece_frontend/acesso_a_api/inscricao_repository.dart';
+import 'package:acontece_frontend/infraestrutura/api_client.dart';
+import 'package:acontece_frontend/infraestrutura/api_dates.dart';
+import 'package:acontece_frontend/infraestrutura/api_exception.dart';
+import 'package:acontece_frontend/infraestrutura/validators.dart';
+import 'package:acontece_frontend/modelos_da_api/auth.dart';
+import 'package:acontece_frontend/modelos_da_api/evento.dart';
+import 'package:acontece_frontend/modelos_da_api/inscricao.dart';
+import 'package:acontece_frontend/modelos_da_api/paged_model.dart';
+import 'package:acontece_frontend/modelos_da_api/participante.dart';
+import 'package:acontece_frontend/modelos_da_api/status_inscricao.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 void main() {
   group('ApiDates', () {
     test('le a fracao de segundo que a API realmente devolve', () {
-      // Resposta real de GET /evento/listar/.
+      // Resposta real de GET /eventos.
       final data = ApiDates.parse('2026-12-04T17:06:44.19');
       expect(data.year, 2026);
       expect(data.month, 12);
@@ -106,9 +111,9 @@ void main() {
       const corpo =
           '{"timestamp":"2026-11-15T00:18:42.485746754Z","status":404,'
           '"error":"Not Found","message":"Evento com id 9999 não encontrado",'
-          '"path":"/evento/buscar/9999","fieldErrors":[]}';
+          '"path":"/eventos/9999","fieldErrors":[]}';
 
-      final erro = ApiException.fromResponse(404, corpo, '/evento/buscar/9999');
+      final erro = ApiException.fromResponse(404, corpo, '/eventos/9999');
       expect(erro.isNotFound, isTrue);
       expect(erro.message, 'Evento com id 9999 não encontrado');
       expect(erro.fieldErrors, isEmpty);
@@ -129,7 +134,7 @@ void main() {
     test('da mensagem propria ao 401 e ao 403 sem corpo', () {
       // O filtro de seguranca do Spring responde 401/403 com corpo vazio
       // quando o token falta, venceu ou o papel nao permite a rota.
-      final semToken = ApiException.fromResponse(401, '', '/evento/listar/');
+      final semToken = ApiException.fromResponse(401, '', '/eventos');
       // `contains`: o texto contem o trecho informado.
       expect(semToken.message, contains('sessão expirou'));
 
@@ -143,7 +148,7 @@ void main() {
       () {
         // Base relativa sem proxy: o servidor de SPA responde index.html com
         // status 200, nao 404.
-        final erro = ApiException.misrouted('/evento/listar/');
+        final erro = ApiException.misrouted('/eventos');
         expect(erro.kind, ApiErrorKind.misrouted);
 
         // A mensagem precisa dizer o que fazer, nao so que algo deu errado.
@@ -156,7 +161,7 @@ void main() {
       final erro = ApiException.fromResponse(
         502,
         '<html>Bad Gateway</html>',
-        '/evento/listar/',
+        '/eventos',
       );
       expect(erro.status, 502);
       expect(erro.isServerError, isTrue);
@@ -181,21 +186,10 @@ void main() {
       expect(uri.queryParameters.containsKey('participanteId'), isFalse);
     });
 
-    test('preserva a barra final obrigatoria de /evento/listar/', () {
-      // Sem a barra no fim a rota nao casa no Spring.
-      expect(
-        ApiClient.resolve('/evento/listar/').path,
-        endsWith('/evento/listar/'),
-      );
-    });
-
     test('nao cria query quando nao ha parametros', () {
-      expect(ApiClient.resolve('/evento/listar/').hasQuery, isFalse);
+      expect(ApiClient.resolve('/eventos').hasQuery, isFalse);
       // Mapa so com valores nulos tambem nao gera "?".
-      expect(
-        ApiClient.resolve('/evento/listar/', {'x': null}).hasQuery,
-        isFalse,
-      );
+      expect(ApiClient.resolve('/eventos', {'x': null}).hasQuery, isFalse);
     });
   });
 
@@ -209,6 +203,7 @@ void main() {
         'dataInicio': '2026-12-04T17:06:44.19',
         'dataFim': '2026-12-08T17:06:44.19',
         'vagas': 200,
+        'vagasDisponiveis': 200,
         'endereco': {
           'cep': '85601-000',
           'logradouro': 'Avenida Julio Assis Cavalheiro',
@@ -230,6 +225,68 @@ void main() {
       );
     });
 
+    group('ocupacao do evento', () {
+      /// Evento minimo com 10 vagas e [livres] vagas disponiveis.
+      Evento evento(int livres) => Evento.fromJson({
+        'id': 1,
+        'titulo': 'Show',
+        'descricao': '',
+        'dataInicio': '2026-12-01T19:00:00',
+        'dataFim': '2026-12-01T23:00:00',
+        'vagas': 10,
+        'vagasDisponiveis': livres,
+        'endereco': const {
+          'cep': '85601-000',
+          'logradouro': 'Rua A',
+          'bairro': 'Centro',
+          'cidade': 'Francisco Beltrao',
+          'uf': 'PR',
+          'numero': null,
+        },
+        'fotoUrl': null,
+      });
+
+      test('calcula as vagas preenchidas a partir das disponiveis', () {
+        final e = evento(3);
+        expect(e.vagasDisponiveis, 3);
+        expect(e.vagasOcupadas, 7);
+        expect(e.lotado, isFalse);
+      });
+
+      test('evento sem inscricoes tem todas as vagas livres', () {
+        final e = evento(10);
+        expect(e.vagasOcupadas, 0);
+        expect(e.lotado, isFalse);
+      });
+
+      test('fica lotado quando nao sobra nenhuma vaga', () {
+        final e = evento(0);
+        expect(e.vagasOcupadas, 10);
+        expect(e.lotado, isTrue);
+      });
+
+      test('exige o campo vagasDisponiveis da API', () {
+        expect(
+          () => Evento.fromJson(const {
+            'id': 1,
+            'titulo': 'Show',
+            'descricao': '',
+            'dataInicio': '2026-12-01T19:00:00',
+            'dataFim': '2026-12-01T23:00:00',
+            'vagas': 10,
+            'endereco': {
+              'cep': '85601-000',
+              'logradouro': 'Rua A',
+              'bairro': 'Centro',
+              'cidade': 'Francisco Beltrao',
+              'uf': 'PR',
+            },
+          }),
+          throwsA(isA<TypeError>()),
+        );
+      });
+    });
+
     test('EventoInput.fromEvento preserva fotoUrl e numero no PUT', () {
       // O PUT e substituicao total: partir do evento atual e o que impede
       // esses dois campos de virarem null numa edicao que nao os tocou.
@@ -240,6 +297,7 @@ void main() {
         'dataInicio': '2026-12-01T19:00:00',
         'dataFim': '2026-12-01T23:00:00',
         'vagas': 50,
+        'vagasDisponiveis': 50,
         'endereco': {
           'cep': '85601-336',
           'logradouro': 'Rua Silvia Abdala',
@@ -570,6 +628,262 @@ void main() {
         // A senha NAO e alterada (espacos preservados).
         {'email': 'org@acontece.com', 'senha': ' s '},
       );
+    });
+  });
+
+  // Testes do repositorio SEM tela: um `MockClient` (cliente HTTP falso) responde
+  // no lugar da rede, e o teste confere a URL pedida e o que o repositorio devolve.
+  group('EventoRepository', () {
+    /// Evento minimo em JSON, com [id] e 10 vagas livres.
+    Map<String, dynamic> evento(int id) => {
+      'id': id,
+      'titulo': 'Evento $id',
+      'descricao': '',
+      'dataInicio': '2026-12-01T19:00:00',
+      'dataFim': '2026-12-01T23:00:00',
+      'vagas': 10,
+      'vagasDisponiveis': 10,
+      'endereco': {
+        'cep': '85601-000',
+        'logradouro': 'Rua A',
+        'bairro': 'Centro',
+        'cidade': 'Francisco Beltrao',
+        'uf': 'PR',
+      },
+      'fotoUrl': null,
+    };
+
+    /// Pagina do Spring Data com [itens] e a posicao entre [paginas]. Os numeros
+    /// de `size` e `totalElements` nao importam aqui: o repositorio decide se ha
+    /// proxima pagina por `number` e `totalPages`.
+    http.Response pagina(List<int> itens, int numero, int paginas) =>
+        http.Response(
+          jsonEncode({
+            'content': [for (final id in itens) evento(id)],
+            'page': {
+              'size': 2,
+              'number': numero,
+              'totalElements': 3,
+              'totalPages': paginas,
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+
+    test('listar manda os filtros somados e omite os vazios', () async {
+      // `late`: recebe valor depois (dentro do MockClient), antes de ser lida.
+      late Uri chamada;
+      final repo = EventoRepository(
+        ApiClient(
+          client: MockClient((request) async {
+            chamada = request.url;
+            return pagina([1], 0, 1);
+          }),
+        ),
+      );
+
+      await repo.listar(
+        titulo: '  semana ',
+        inicio: DateTime(2026, 12, 1),
+        fim: DateTime(2026, 12, 31, 23, 59, 59),
+        size: 100,
+      );
+
+      expect(chamada.path, '/eventos');
+      expect(chamada.queryParameters['titulo'], 'semana');
+      // Datas sem fuso, como a API le (LocalDateTime).
+      expect(chamada.queryParameters['inicio'], '2026-12-01T00:00:00');
+      expect(chamada.queryParameters['fim'], '2026-12-31T23:59:59');
+      expect(chamada.queryParameters['size'], '100');
+      expect(chamada.queryParameters.containsKey('sort'), isFalse);
+
+      // Titulo so com espacos equivale a nao filtrar: nem vai na URL.
+      await repo.listar(titulo: '   ');
+      expect(chamada.queryParameters.containsKey('titulo'), isFalse);
+      expect(chamada.queryParameters.containsKey('inicio'), isFalse);
+    });
+
+    test('listarTodos percorre todas as paginas', () async {
+      // Guarda cada pagina pedida, na ordem, para conferir o percurso.
+      final paginasPedidas = <String>[];
+      final repo = EventoRepository(
+        ApiClient(
+          client: MockClient((request) async {
+            final numero = int.parse(request.url.queryParameters['page']!);
+            paginasPedidas.add('$numero');
+            return numero == 0 ? pagina([1, 2], 0, 2) : pagina([3], 1, 2);
+          }),
+        ),
+      );
+
+      final todos = await repo.listarTodos();
+
+      // Os eventos das duas paginas vieram juntos, na ordem; e foram pedidas
+      // exatamente a pagina 0 e a 1 (parou ao ver que a 1 era a ultima).
+      expect(todos.map((e) => e.id), [1, 2, 3]);
+      expect(paginasPedidas, ['0', '1']);
+    });
+
+    // Garante que criar/editar/ler/apagar usam as rotas novas, e nao mais
+    // `/evento/criar`, `/evento/atualizar/{id}` etc.
+    test('rotas de escrita usam /eventos', () async {
+      // Cada pedido vira um texto "VERBO /caminho" para comparar a lista toda.
+      final pedidos = <String>[];
+      final repo = EventoRepository(
+        ApiClient(
+          client: MockClient((request) async {
+            pedidos.add('${request.method} ${request.url.path}');
+            return request.method == 'DELETE'
+                ? http.Response('', 204)
+                : http.Response(
+                    jsonEncode(evento(5)),
+                    request.method == 'POST' ? 201 : 200,
+                    headers: {'content-type': 'application/json'},
+                  );
+          }),
+        ),
+      );
+      final entrada = EventoInput(
+        titulo: 'X',
+        descricao: '',
+        dataInicio: DateTime(2026, 1, 1, 10),
+        dataFim: DateTime(2026, 1, 1, 12),
+        vagas: 1,
+        cep: '85601000',
+      );
+
+      await repo.criar(entrada);
+      await repo.atualizar(5, entrada);
+      await repo.buscarPorId(5);
+      await repo.deletar(5);
+
+      expect(pedidos, [
+        'POST /eventos',
+        'PUT /eventos/5',
+        'GET /eventos/5',
+        'DELETE /eventos/5',
+      ]);
+    });
+  });
+
+  // O cancelamento do participante tem rota propria: PATCH sem corpo.
+  group('InscricaoRepository.cancelar', () {
+    test('faz PATCH sem corpo em /inscricoes/{id}/cancelar', () async {
+      late http.Request pedido;
+      final repo = InscricaoRepository(
+        ApiClient(
+          client: MockClient((request) async {
+            pedido = request;
+            return http.Response(
+              jsonEncode({
+                'id': 10,
+                'participanteId': 7,
+                'participanteNome': 'Maria',
+                'eventoId': 1,
+                'eventoTitulo': 'Radar Tech',
+                'status': 'CANCELADA',
+                'dataInscricao': '2026-11-15T10:00:00',
+              }),
+              200,
+              headers: {'content-type': 'application/json'},
+            );
+          }),
+        ),
+      );
+
+      final inscricao = await repo.cancelar(10);
+
+      expect(pedido.method, 'PATCH');
+      expect(pedido.url.path, '/inscricoes/10/cancelar');
+      expect(pedido.body, isEmpty);
+      expect(inscricao.status, StatusInscricao.cancelada);
+    });
+  });
+
+  // 429 (bloqueio por tentativas), o modelo de `GET /me` e o nome na sessao.
+  group('429 e UsuarioAtual', () {
+    test('429 vira ApiException com mensagem e texto proprio', () {
+      final comCorpo = ApiException.fromResponse(
+        429,
+        '{"status":429,"message":"Muitas tentativas de login. Tente '
+            'novamente em alguns minutos.","path":"/auth/login"}',
+        '/auth/login',
+      );
+      expect(comCorpo.isTooManyRequests, isTrue);
+      expect(comCorpo.message, startsWith('Muitas tentativas de login'));
+
+      final semCorpo = ApiException.fromResponse(429, '', '/auth/login');
+      expect(semCorpo.message, contains('Muitas tentativas'));
+    });
+
+    test('UsuarioAtual le a resposta de GET /me', () {
+      final atual = UsuarioAtual.fromJson(const {
+        'id': 7,
+        'nome': 'Maria Silva',
+        'email': 'maria@exemplo.com',
+        'papel': 'PARTICIPANTE',
+        'tokenExpiraEm': '2100-01-01T00:00:00Z',
+      });
+      expect(atual.nome, 'Maria Silva');
+      expect(atual.papel, Papel.participante);
+    });
+
+    test('UsuarioLogado guarda o nome e o usa como identificacao', () {
+      final usuario = UsuarioLogado(
+        token: 'a.b.c',
+        id: 7,
+        papel: Papel.participante,
+        email: 'maria@exemplo.com',
+        expiraEm: DateTime.utc(2100),
+      );
+      // Sem nome (login recem-feito ou sessao antiga): usa o e-mail.
+      expect(usuario.rotuloExibicao, 'maria@exemplo.com');
+      // Depois do `/me`: uma COPIA com o nome (o objeto original nao muda).
+
+      final atualizado = usuario.comDadosDe(
+        const UsuarioAtual(
+          id: 7,
+          nome: 'Maria Silva',
+          email: 'maria@exemplo.com',
+          papel: Papel.participante,
+        ),
+      );
+      expect(atualizado.rotuloExibicao, 'Maria Silva');
+      expect(atualizado.token, 'a.b.c');
+      // Sobrevive a gravar e reler a sessao.
+      final relido = UsuarioLogado.fromJson(atualizado.toJson());
+      expect(relido.nome, 'Maria Silva');
+      // Sessao salva antes do `/me` (sem nome) continua valida.
+      final antiga = UsuarioLogado.fromJson(usuario.toJson());
+      expect(antiga.nome, isNull);
+    });
+  });
+
+  // Limites e regras novas do back-end espelhados no cliente (ver validators.dart).
+  group('validacoes novas', () {
+    test('descricao do evento aceita ate 2000 caracteres', () {
+      expect(Validators.descricaoEvento('a' * 2000), isNull);
+      expect(Validators.descricaoEvento('a' * 2001), isNotNull);
+      expect(Validators.descricaoEvento(null), isNull);
+    });
+
+    test('URL da foto aceita ate 1000 caracteres', () {
+      final longa = 'https://exemplo.com/${'a' * 980}';
+      expect(longa.length, 1000);
+      expect(Validators.fotoUrl(longa), isNull);
+      expect(Validators.fotoUrl('${longa}b'), isNotNull);
+    });
+
+    test('nova senha segue o cadastro e difere da atual', () {
+      expect(Validators.novaSenha('novaSenha22', 'antiga123'), isNull);
+      expect(Validators.novaSenha('curta', 'antiga123'), isNotNull);
+      expect(
+        Validators.novaSenha('antiga123', 'antiga123'),
+        'A nova senha deve ser diferente da atual',
+      );
+      expect(Validators.confirmacaoSenha('abc', 'abc'), isNull);
+      expect(Validators.confirmacaoSenha('abd', 'abc'), isNotNull);
     });
   });
 }

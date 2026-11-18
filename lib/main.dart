@@ -36,11 +36,11 @@ import 'package:material_ui/material_ui.dart';
 
 // Imports relativos (sem `package:`) apontam para arquivos do proprio app.
 // Tema visual (cores, fontes) do app: daqui vem a classe `AppTheme`.
-import 'core/theme.dart';
+import 'infraestrutura/theme.dart';
 // Tela de login/cadastro, exibida quando ninguem esta logado.
-import 'screens/auth/login_screen.dart';
+import 'telas/autenticacao/login_screen.dart';
 // "Casca" do app logado: menu lateral/inferior + abas.
-import 'screens/home_shell.dart';
+import 'telas/home_shell.dart';
 // Widget que entrega a sessao e os repositorios para a arvore inteira.
 import 'services.dart';
 
@@ -119,7 +119,7 @@ class _AconteceAppState extends State<AconteceApp> {
       // Liga a chave global ao Navigator que o MaterialApp cria por dentro.
       // Sem isso `_navigator.currentState` ficaria sempre nulo.
       navigatorKey: _navigator,
-      // Tema claro (cores, fontes, formatos de botoes) de core/theme.dart.
+      // Tema claro (cores, fontes, formatos de botoes) de infraestrutura/theme.dart.
       theme: AppTheme.light(),
       // Tema escuro: existe, mas nao e usado (ver `themeMode` abaixo).
       darkTheme: AppTheme.dark(),

@@ -23,49 +23,54 @@ FL="C:/Users/mathe/OneDrive/Documentos/flutter/bin"
 "$FL/flutter.bat" run -d chrome --web-port=5173
 ```
 
-**A porta 5173 não é opcional.** A API envia CORS só para `http://localhost:5173`, `http://localhost:3000` e `https://acontece-frontend.vercel.app` (`cors.allowed-origins` no back-end). Em outra porta o navegador bloqueia tudo e o app mostra "Sem conexão com a API" (o `ClientException` do navegador não diz que foi CORS).
+**A porta 5173 não é opcional.** A API envia CORS só para `http://localhost:5173`, `http://localhost:3000` e `https://acontece.netlify.app` (`cors.allowed-origins` no back-end). Em outra porta o navegador bloqueia tudo e o app mostra "Sem conexão com a API" (o `ClientException` do navegador não diz que foi CORS).
 
-Plugins Flutter (ex.: `shared_preferences`) exigem Modo de Desenvolvedor no Windows por causa de symlinks, e ele não está ativo. Por isso o token é salvo com `package:web` direto, via import condicional (`core/token_storage*.dart`).
+Plugins Flutter (ex.: `shared_preferences`) exigem Modo de Desenvolvedor no Windows por causa de symlinks, e ele não está ativo. Por isso o token é salvo com `package:web` direto, via import condicional (`infraestrutura/token_storage*.dart`).
 
 ## Autenticação e papéis (o fato central)
 
-A API usa JWT (`POST /auth/login` → `{token, tipo, expiraEmSegundos, usuarioId, papel}`). O papel vem na claim `papel`; o e-mail, na claim `email` (o `TokenResponse` não traz o e-mail, então ele é lido do próprio JWT em `UsuarioLogado.fromToken`).
+A API usa JWT (`POST /auth/login` → `{token, tipo, expiraEmSegundos, usuarioId, papel}`). O papel vem na claim `papel`; o e-mail, na claim `email` (o `TokenResponse` não traz o e-mail, então ele é lido do próprio JWT em `UsuarioLogado.fromToken`). O **nome** vem de `GET /me`, buscado em segundo plano por `Sessao.sincronizar` (ao abrir com sessão salva, depois do login e depois de editar o perfil); falha ali é ignorada e a barra mostra o e-mail.
 
 | Rota | Quem pode |
 |---|---|
 | `POST /auth/login`, `POST /participantes` | qualquer um (sem token) |
-| `GET /evento/**` | qualquer logado |
-| demais `/evento/**` | ORGANIZADOR |
+| `GET /eventos`, `GET /eventos/{id}` | qualquer logado |
+| demais `/eventos/**` | ORGANIZADOR |
+| `GET /me`, `PATCH /me/senha` | qualquer logado |
 | `GET /participantes` | ORGANIZADOR |
 | `GET/PATCH/DELETE /participantes/{id}` | ORGANIZADOR ou o próprio participante |
 | `POST /inscricoes` | PARTICIPANTE, sempre em nome próprio (`participanteId` do corpo é sobrescrito pelo token) |
 | `GET /inscricoes` | logado; participante é travado no próprio id |
 | `PATCH /inscricoes/{id}/status` | ORGANIZADOR |
+| `PATCH /inscricoes/{id}/cancelar` | PARTICIPANTE, só a própria (sem corpo; evento encerrado → 400) |
 
 Consequências no front:
 
-- Organizador **não** cria inscrição; participante **não** muda status (nem cancela a própria). Não ofereça essas ações.
-- `contarAtivasDoEvento` só faz sentido para o organizador; para o participante a contagem seria a dele.
-- Não existe cadastro de organizador nem troca de senha na API.
+- Organizador **não** cria inscrição; participante **não** confirma, mas **cancela a própria** (`InscricaoRepository.cancelar`, rota própria). O organizador muda status por `atualizarStatus`.
+- Todo evento traz `vagasDisponiveis`: a ocupação (`vagasOcupadas`, `lotado`) é calculada no `Evento` e vale para os dois papéis. Não conte inscrições pelo cliente.
+- `GET /eventos` é paginado (máx. 100): use `listarTodos` quando a tela precisa da lista inteira. As rotas `/evento/...` são obsoletas; não as use.
+- A senha se troca em `PATCH /me/senha` (`TrocarSenhaScreen`). Não existe cadastro de organizador.
+- 429 no login e na troca de senha (5 erros do mesmo IP e e-mail, 15 min). `Retry-After` não é legível no navegador, então o texto não cita o tempo exato.
 - 401/403 do filtro de segurança chegam **com corpo vazio**; as mensagens vêm de `ApiException._genericFor`. Já o 401 do login e o 403 de `AccessDeniedException` vêm com o envelope normal.
 
-Fluxo de sessão: `Sessao` (`core/sessao.dart`, um `ChangeNotifier`) guarda o `UsuarioLogado` no `TokenStorage`. `Services` liga o `ApiClient` a ela (`tokenProvider`, `onUnauthorized`). `main.dart` escuta a sessão e alterna entre `LoginScreen` e `HomeShell`; ao deslogar, faz `popUntil(isFirst)` para fechar telas empilhadas. Um 401 em pedido **com token** chama `sessao.expirou()` → volta ao login com aviso.
+Fluxo de sessão: `Sessao` (`infraestrutura/sessao.dart`, um `ChangeNotifier`) guarda o `UsuarioLogado` no `TokenStorage`. `Services` liga o `ApiClient` a ela (`tokenProvider`, `onUnauthorized`). `main.dart` escuta a sessão e alterna entre `LoginScreen` e `HomeShell`; ao deslogar, faz `popUntil(isFirst)` para fechar telas empilhadas. Um 401 em pedido **com token** chama `sessao.expirou()` → volta ao login com aviso.
 
 ## Arquitetura
 
 ```
-core/          infraestrutura sem UI (rede, sessão, erros, datas, validações, tema)
-models/        espelho dos DTOs da API, com fromJson/toJson à mão
-repositories/  uma classe por recurso; isola TODA a peculiaridade de rota
-screens/ widgets/   interface
-services.dart  InheritedWidget que entrega sessão e repositórios
+infraestrutura/     rede, sessão, erros, datas, validações, tema (sem UI)
+modelos_da_api/     espelho dos DTOs da API, com fromJson/toJson à mão
+acesso_a_api/       uma classe por recurso; isola TODA a peculiaridade de rota
+telas/              telas (autenticacao/, eventos/, inscricoes/, participantes/)
+componentes_visuais/ widgets reutilizáveis
+services.dart       InheritedWidget que entrega sessão e repositórios
 ```
 
-**`core/api_client.dart` é o único ponto de rede do app.** Concentra URL, header `Authorization`, timeout, decodificação UTF-8 e tradução de falhas para `ApiException`.
+**`infraestrutura/api_client.dart` é o único ponto de rede do app.** Concentra URL, header `Authorization`, timeout, decodificação UTF-8 e tradução de falhas para `ApiException`.
 
-**`repositories/` existe para que nenhuma tela saiba das esquisitices da API.** Peculiaridade nova vai para o repositório com comentário, não para a tela.
+**`acesso_a_api/` existe para que nenhuma tela saiba das esquisitices da API.** Peculiaridade nova vai para o repositório com comentário, não para a tela.
 
-**`widgets/async_view.dart` padroniza carregando / erro com retry / vazio.** O idioma para filtros é o `reloadKey` (ver `_chave` em `eventos_list_screen.dart`); depois de criar/editar/excluir, incremente `_versao`.
+**`componentes_visuais/async_view.dart` padroniza carregando / erro com retry / vazio.** O idioma para filtros é o `reloadKey` (ver `_chave` em `eventos_list_screen.dart`); depois de criar/editar/excluir, incremente `_versao`.
 
 As abas recebem o `UsuarioLogado` por construtor (`HomeShell` → telas). As páginas principais usam `CabecalhoPagina` (faixa em degradê) em vez de `AppBar`; ele mostra botão de voltar sozinho quando a tela foi empilhada. Em tela estreita, `ContaBotao` no cabeçalho dá acesso ao "Sair".
 
@@ -77,7 +82,7 @@ Dependências diretas: `material_ui`, `http`, `intl`, `web`, `cupertino_icons`. 
 - **Estado:** `StatefulWidget` + `AsyncView`; a sessão é um `ChangeNotifier` escutado com `ListenableBuilder`. Sem Provider/Riverpod/Bloc.
 - **Injeção:** `InheritedWidget` em `services.dart`. `Services.of(context)` **não funciona em `initState`** — use `didChangeDependencies` com flag.
 - **Navegação:** `Navigator` + `MaterialPageRoute`. Telas devolvem `bool` no `pop` para "algo mudou".
-- **Tema:** paleta da marca em `Paleta` (`core/theme.dart`). Use as cores dela ou do `ColorScheme` derivado; não introduza cores fora da paleta (exceto erro).
+- **Tema:** paleta da marca em `Paleta` (`infraestrutura/theme.dart`). Use as cores dela ou do `ColorScheme` derivado; não introduza cores fora da paleta (exceto erro).
 
 ### Armadilhas já resolvidas (não reintroduza)
 
@@ -101,7 +106,7 @@ Instância gratuita do Render que hiberna; medido 146–148 s (último em 15/11/
 
 ## Layout responsivo e cores
 
-- Faixas de tela: enum `Tela` em `core/theme.dart` (celular < 600, tablet < 900, notebook < 1280, desktop). Use `Tela.of(context)`; **não** compare `MediaQuery` com números soltos. Para decisões que dependem da largura que sobra ao conteúdo (a barra lateral ocupa 88 ou 248 px), use `LayoutBuilder`, como a grade de eventos e o detalhe.
+- Faixas de tela: enum `Tela` em `infraestrutura/theme.dart` (celular < 600, tablet < 900, notebook < 1280, desktop). Use `Tela.of(context)`; **não** compare `MediaQuery` com números soltos. Para decisões que dependem da largura que sobra ao conteúdo (a barra lateral ocupa 88 ou 248 px), use `LayoutBuilder`, como a grade de eventos e o detalhe.
 - Cartão de evento: altura fixa (`EventoCard.altura`), grade com `SliverGridDelegateWithFixedCrossAxisCount`. Não volte para `Wrap` nem para `maxCrossAxisExtent` (este arredonda para cima e gera colunas de 184 px no celular).
 - **Cores sólidas.** Fundo translúcido some conforme o que está atrás. Em `ChoiceChip` o fundo vem de `color` (`WidgetStateProperty`), **não** de `backgroundColor`, que é ignorado no Material 3 e deixava texto branco sobre chip branco.
 - Itens `enabled: false` de `PopupMenuItem` são pintados em cinza claro pelo Material; dê cor explícita ao texto.
@@ -110,7 +115,7 @@ Instância gratuita do Render que hiberna; medido 146–148 s (último em 15/11/
 
 ## Testes
 
-138 testes:
+172 testes:
 
 - `test/validators_test.dart` — validações espelhadas do Bean Validation (inclui senha 8–72)
 - `test/api_test.dart` — datas, envelope de erro, 401/403, modelos, JWT/sessão, paginação, URL
@@ -120,6 +125,10 @@ Instância gratuita do Render que hiberna; medido 146–148 s (último em 15/11/
 - O grupo "layout responsivo" de `app_test.dart` roda as telas em 375 / 768 / 1100 / 1920 px nos dois papéis; um overflow em qualquer largura derruba o teste.
 
 Ao adicionar teste de widget, chame `initializeDateFormatting('pt_BR')` no `setUpAll`. Prefira fixtures copiadas de respostas reais da API.
+
+## Ordem de publicação
+
+O front usa as rotas novas (`/eventos`, `/me`, `/inscricoes/{id}/cancelar`). **Publique a API nova antes do front**: contra a API antiga a lista de eventos volta 404.
 
 ## Publicação
 
