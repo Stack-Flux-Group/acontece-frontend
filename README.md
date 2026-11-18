@@ -339,14 +339,15 @@ acontece-frontend/
 │   │   └── paged_model.dart              # Paginação do Spring Data
 │   │
 │   ├── acesso_a_api/                 # Acesso à API, um por recurso
-│   │   ├── auth_repository.dart          # /auth/login
+│   │   ├── auth_repository.dart          # /auth/login, /me e /me/senha
 │   │   ├── evento_repository.dart        # /eventos
 │   │   ├── participante_repository.dart  # /participantes
 │   │   └── inscricao_repository.dart     # /inscricoes
 │   │
 │   ├── telas/                        # Telas
 │   │   ├── autenticacao/
-│   │   │   └── login_screen.dart         # Entrar e criar conta
+│   │   │   ├── login_screen.dart         # Entrar e criar conta
+│   │   │   └── trocar_senha_screen.dart  # Alterar a própria senha (os dois papéis)
 │   │   ├── home_shell.dart               # Navegação por papel (barra lateral / inferior)
 │   │   ├── eventos/
 │   │   │   ├── eventos_list_screen.dart  # Catálogo com busca e filtro por período
@@ -390,8 +391,8 @@ A suíte tem **172 testes**, todos rodando sem acesso à rede:
 | Arquivo | O que cobre |
 |---|---|
 | `test/validators_test.dart` | Regras espelhadas da API: dígitos verificadores do CPF, CEP, telefone, título, vagas, período do evento, senha de 8 a 72 caracteres |
-| `test/api_test.dart` | Datas sem fuso e com fração de segundo, envelope de erro (incluindo 401/403 sem corpo), modelos, leitura do JWT, sessão, paginação e montagem de URL |
-| `test/app_test.dart` | Telas renderizadas de verdade com um `MockClient` que devolve **respostas reais da API**: login, criar conta, sessão expirada, eventos, inscrição, inscrições e perfil, para cada papel. Inclui o teste de **responsividade**: as telas principais, nos dois papéis, em 4 larguras (celular, tablet, notebook e desktop), falhando em qualquer overflow, e a conferência de que todos os cartões de evento têm o mesmo tamanho |
+| `test/api_test.dart` | Datas sem fuso e com fração de segundo, envelope de erro (incluindo 401/403/429), modelos (inclusive a ocupação do evento e o `/me`), leitura do JWT, sessão, paginação, montagem de URL e os repositórios de eventos (filtros somados, várias páginas) e de inscrições (cancelar) |
+| `test/app_test.dart` | Telas renderizadas de verdade com um `MockClient` que devolve **respostas reais da API**: login, criar conta, sessão expirada, eventos, vagas e evento lotado, inscrição, cancelamento, nome vindo do `/me`, troca de senha (inclusive 429), inscrições e perfil, para cada papel. Inclui o teste de **responsividade**: as telas principais, nos dois papéis, em 4 larguras (celular, tablet, notebook e desktop), falhando em qualquer overflow, e a conferência de que todos os cartões de evento têm o mesmo tamanho |
 | `test/contraste_test.dart` | **Acessibilidade de cores**: calcula o contraste WCAG dos pares usados no site (tema claro e escuro, botões desabilitados, selos, textos sobre os degradês) e exige no mínimo 4,5:1 para texto e 3:1 para ícones e bordas |
 
 ```sh
@@ -467,6 +468,8 @@ Comportamentos não óbvios da API e onde o front-end lida com eles:
 | Tela carregando por ~2 minutos | Cold start do servidor gratuito do Render | Aguarde; os acessos seguintes são rápidos |
 | **"Sua sessão expirou"** | O token passou de 120 minutos ou foi recusado | Entre novamente |
 | **"Você não tem permissão para esta operação"** | O papel logado não pode fazer aquela ação | Entre com uma conta do papel adequado |
+| **"Muitas tentativas"** (429) | 5 senhas erradas do mesmo IP para o mesmo e-mail, no login ou na troca de senha | Aguarde cerca de 15 minutos; nesse período nem a senha certa entra |
+| Lista de eventos com **"Não encontrado"** (404) | O front novo está apontando para uma API que ainda não tem `/eventos` | Publique primeiro a versão nova da API |
 | **"E-mail ou senha inválidos"** | Credenciais erradas (a API não diz qual das duas, de propósito) | Confira os dados ou crie uma conta |
 | **"A requisição não chegou à API"** | `API_BASE_URL` aponta para algo que não é a API | Corrija o `--dart-define=API_BASE_URL=...` |
 | `flutter` não é reconhecido | Flutter fora do PATH | Adicione `flutter/bin` ao PATH ou use o caminho completo |
